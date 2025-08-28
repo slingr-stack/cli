@@ -2,6 +2,29 @@
 
 A command line tool for creating Slingr applications with TypeScript and best practices built-in.
 
+## How to test set-up?
+
+1. Clone repository
+
+```bash
+git clone https://github.com/slingr-stack/cli.git
+cd cli
+```
+
+2. Install dependencies, build and link
+
+```bash
+npm install
+npm run build
+npm link
+```
+
+3. Execute
+
+```bash
+slingr create-app <my-app>
+```
+
 ## Installation
 
 ```bash
