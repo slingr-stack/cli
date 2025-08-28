@@ -23,6 +23,7 @@ npm link
 
 ```bash
 slingr create-app <my-app>
+slingr --help
 ```
 
 ## Installation
