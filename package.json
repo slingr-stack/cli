@@ -14,7 +14,8 @@
     "@types/fs-extra": "^11.0.4",
     "@types/inquirer": "^8.2.12",
     "fs-extra": "^11.3.1",
-    "inquirer": "^8.2.7"
+    "inquirer": "^8.2.7",
+    "slingr-framework": "github:slingr-stack/framework"
   },
   "devDependencies": {
     "@eslint/compat": "^1",

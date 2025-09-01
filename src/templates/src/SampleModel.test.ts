@@ -1,5 +1,4 @@
-import { plainToClass } from 'class-transformer';
-import { Person } from './model/Person';
+import { Person } from './SampleModel';
 
 describe('Person Model', () => {
     describe('Validation Tests', () => {
@@ -14,7 +13,7 @@ describe('Person Model', () => {
                 isActive: true
             };
 
-            const person = plainToClass(Person, personData);
+            const person = Person.fromJSON(personData);
             const errors = await person.validate();
 
             expect(errors.length).toBe(0);
@@ -31,7 +30,7 @@ describe('Person Model', () => {
                 isActive: false
             };
 
-            const person = plainToClass(Person, personData);
+            const person = Person.fromJSON(personData);
             const errors = await person.validate();
 
             expect(errors.length).toBe(0);
@@ -45,7 +44,7 @@ describe('Person Model', () => {
                 age: 25
             };
 
-            const person = plainToClass(Person, personData);
+            const person = Person.fromJSON(personData);
             const errors = await person.validate();
 
             expect(errors.length).toBeGreaterThan(0);
@@ -62,7 +61,7 @@ describe('Person Model', () => {
                 age: 25
             };
 
-            const person = plainToClass(Person, personData);
+            const person = Person.fromJSON(personData);
             const errors = await person.validate();
 
             expect(errors.length).toBeGreaterThan(0);
@@ -79,7 +78,7 @@ describe('Person Model', () => {
                 age: 25
             };
 
-            const person = plainToClass(Person, personData);
+            const person = Person.fromJSON(personData);
             const errors = await person.validate();
 
             expect(errors.length).toBeGreaterThan(0);
@@ -96,7 +95,7 @@ describe('Person Model', () => {
                 age: -5
             };
 
-            const person = plainToClass(Person, personData);
+            const person = Person.fromJSON(personData);
             const errors = await person.validate();
 
             expect(errors.length).toBeGreaterThan(0);
@@ -113,7 +112,7 @@ describe('Person Model', () => {
                 age: 150
             };
 
-            const person = plainToClass(Person, personData);
+            const person = Person.fromJSON(personData);
             const errors = await person.validate();
 
             expect(errors.length).toBeGreaterThan(0);
@@ -131,7 +130,7 @@ describe('Person Model', () => {
                 // parentEmail missing
             };
 
-            const person = plainToClass(Person, personData);
+            const person = Person.fromJSON(personData);
             const errors = await person.validate();
 
             expect(errors.length).toBeGreaterThan(0);
@@ -149,7 +148,7 @@ describe('Person Model', () => {
                 // parentEmail not provided
             };
 
-            const person = plainToClass(Person, personData);
+            const person = Person.fromJSON(personData);
             const errors = await person.validate();
 
             // Should not have parentEmail error
@@ -169,7 +168,7 @@ describe('Person Model', () => {
                 isActive: true
             };
 
-            const person = plainToClass(Person, personData);
+            const person = Person.fromJSON(personData);
             const json = person.toJSON();
 
             expect(json).not.toHaveProperty('internalId');
@@ -189,7 +188,7 @@ describe('Person Model', () => {
                 phoneNumber: '123-456-7890'
             };
 
-            const person = plainToClass(Person, personData);
+            const person = Person.fromJSON(personData);
             const json = person.toJSON();
 
             expect(json).toHaveProperty('phoneNumber', '123-456-7890');
@@ -205,7 +204,7 @@ describe('Person Model', () => {
                 phoneNumber: '123-456-7890'
             };
 
-            const person = plainToClass(Person, personData);
+            const person = Person.fromJSON(personData);
             const json = person.toJSON();
 
             expect(json).not.toHaveProperty('phoneNumber');
@@ -224,7 +223,7 @@ describe('Person Model', () => {
                 isActive: true
             };
 
-            const person = plainToClass(Person, personData);
+            const person = Person.fromJSON(personData);
             const errors = await person.validate();
 
             expect(errors.length).toBe(0);
@@ -240,7 +239,7 @@ describe('Person Model', () => {
                 additionalInfo: '<p>This is <strong>HTML</strong> content</p>'
             };
 
-            const person = plainToClass(Person, personData);
+            const person = Person.fromJSON(personData);
             const errors = await person.validate();
 
             expect(errors.length).toBe(0);
@@ -255,7 +254,7 @@ describe('Person Model', () => {
                 email: 'john@example.com'
             };
 
-            const person = plainToClass(Person, personData);
+            const person = Person.fromJSON(personData);
             const errors = await person.validate();
 
             expect(errors.length).toBeGreaterThan(0);
@@ -277,7 +276,7 @@ describe('Person Model', () => {
                 age: 18 // Boundary between minor and adult
             };
 
-            const person = plainToClass(Person, personData);
+            const person = Person.fromJSON(personData);
             const errors = await person.validate();
 
             expect(errors.length).toBe(0);
