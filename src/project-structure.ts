@@ -65,6 +65,12 @@ export async function createProjectStructure(appName: string, answers: AppAnswer
         path.join(targetDir, 'jest.config.ts')
     )
 
+    // Copy jest.setup.ts from templates
+    await fse.copy(
+        path.join(templatesDir, 'config', 'jest.setup.ts'),
+        path.join(targetDir, 'jest.setup.ts')
+    )
+
     // Copy and process src files from templates
     const replacements = {
         '{{APP_NAME}}': appName
@@ -119,7 +125,11 @@ ${answers.description}
             'ts-jest': '^29.1.0',
             'ts-node': '^10.9.0',
             'typescript': '^5.0.0',
-            'slingr-framework': 'github:slingr-stack/framework'
+            'slingr-framework': 'github:slingr-stack/framework',
+            "reflect-metadata": "^0.2.2",
+            "class-transformer": "^0.5.1",
+            "class-validator": "^0.14.2",
+            "financial-number": "^4.0.4",
         },
         keywords: [
             'slingr',
