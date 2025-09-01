@@ -59,6 +59,12 @@ export async function createProjectStructure(appName: string, answers: AppAnswer
         path.join(targetDir, '.gitignore')
     )
 
+    // Copy jest.config.ts from templates
+    await fse.copy(
+        path.join(templatesDir, 'config', 'jest.config.ts'),
+        path.join(targetDir, 'jest.config.ts')
+    )
+
     // Copy and process src files from templates
     const replacements = {
         '{{APP_NAME}}': appName
