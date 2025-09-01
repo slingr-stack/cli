@@ -1,4 +1,3 @@
-import 'reflect-metadata';
 import { Person } from './SampleModel';
 
 describe('Person Model', () => {
