@@ -1,7 +1,4 @@
-import { Field } from "slingr-framework";
-import { Model } from "slingr-framework";
-import { BaseModel } from "slingr-framework";
-import { Text, Email, HTML, Boolean } from "slingr-framework";
+import { Field, Text, Email, HTML, Boolean, Model, BaseModel } from "slingr-framework";
 
 @Model({
     docs: "Represents a person",

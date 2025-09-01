@@ -1,6 +1,6 @@
 import 'reflect-metadata';
 import { plainToClass } from 'class-transformer';
-import { Person } from './model/Person';
+import { Person } from './SampleModel';
 
 describe('Person Model', () => {
     describe('Validation Tests', () => {
