@@ -1,19 +1,25 @@
 {
   "compilerOptions": {
+    "module": "commonjs",
+    "target": "esnext",
+    "types": ["node", "jest"],
+    "sourceMap": true,
     "declaration": true,
     "declarationMap": true,
-    "esModuleInterop": true,
-    "forceConsistentCasingInFileNames": true,
-    "lib": ["ES2020"],
-    "module": "commonjs",
-    "outDir": "./dist",
-    "resolveJsonModule": true,
-    "rootDir": "./src",
-    "skipLibCheck": true,
-    "sourceMap": true,
+    "noUncheckedIndexedAccess": true,
+    "exactOptionalPropertyTypes": true,
     "strict": true,
-    "target": "ES2020"
+    "jsx": "react-jsx",
+    "verbatimModuleSyntax": false,
+    "isolatedModules": true,
+    "noUncheckedSideEffectImports": true,
+    "moduleDetection": "force",
+    "skipLibCheck": true,
+    "experimentalDecorators": true,
+    "emitDecoratorMetadata": true,
+    "esModuleInterop": true,
+    "outDir": "./dist",
+    "baseUrl": "./"
   },
-  "exclude": ["node_modules", "dist", "**/*.test.ts"],
-  "include": ["src/**/*"]
+  "include": ["src/**/*", "test/**/*", "jest.config.js", "index.ts"]
 }

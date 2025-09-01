@@ -53,6 +53,12 @@ export async function createProjectStructure(appName: string, answers: AppAnswer
         path.join(targetDir, 'tsconfig.json')
     )
 
+    // Copy .gitignore from templates
+    await fse.copy(
+        path.join(templatesDir, 'config', '.gitignore'),
+        path.join(targetDir, '.gitignore')
+    )
+
     // Copy and process src files from templates
     const replacements = {
         '{{APP_NAME}}': appName
@@ -106,7 +112,8 @@ ${answers.description}
             'jest': '^29.5.0',
             'ts-jest': '^29.1.0',
             'ts-node': '^10.9.0',
-            'typescript': '^5.0.0'
+            'typescript': '^5.0.0',
+            'slingr-framework': 'github:slingr-stack/framework'
         },
         keywords: [
             'slingr',
