@@ -1,9 +1,7 @@
 import { TypeORMSqlDataSource } from 'slingr-framework'
 
-// Auto-generated datasource template. The generator will replace {{DB_TYPE}}
-// with the database chosen by the user (e.g. 'sqlite', 'postgres', 'mysql').
 export const mainDataSource = new TypeORMSqlDataSource({
-  type: '{{DB_TYPE}}', // tipo ingresado por el usuario
+  type: '{{DB_TYPE}}', 
   managed: true,
   filename: ':memory:',
   logging: false,
