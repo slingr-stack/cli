@@ -57,6 +57,16 @@ export default class CreateApp extends Command {
         type: 'confirm',
       },
       {
+        type: 'list',
+        name: 'database',
+        message: 'Which database do you want to use?',
+        choices: [
+          { name: 'PostgreSQL', value: 'postgres' },
+          { name: 'MySQL', value: 'mysql' }
+        ],
+        default: 'postgres'
+      },
+      {
         message: 'Perfect! Please, provide a description of what your app needs to do:\n',
         name: 'description',
         type: 'input',

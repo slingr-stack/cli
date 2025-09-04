@@ -7,6 +7,7 @@ export interface AppAnswers {
     description: string
     hasBackend: boolean
     hasFrontend: boolean
+    database: string
 }
 
 async function copyTemplateFile(templatePath: string, targetPath: string, replacements?: Record<string, string>): Promise<void> {
@@ -34,6 +35,7 @@ export async function createProjectStructure(appName: string, answers: AppAnswer
     await fse.ensureDir(path.join(targetDir, '.vscode'))
     await fse.ensureDir(path.join(targetDir, '.github'))
     await fse.ensureDir(path.join(targetDir, 'src', 'data'))
+    await fse.ensureDir(path.join(targetDir, 'src', 'config'))
     await fse.ensureDir(path.join(targetDir, 'docs'))
 
     // Copy .vscode files from templates
@@ -48,8 +50,8 @@ export async function createProjectStructure(appName: string, answers: AppAnswer
     )
 
     // Copy tsconfig.json from templates
-    await fse.copy(
-        path.join(templatesDir, 'config', 'tsconfig.json'),
+    await copyTemplateFile(
+        path.join(templatesDir, 'config', 'tsconfig.json.template'),
         path.join(targetDir, 'tsconfig.json')
     )
 
@@ -82,6 +84,15 @@ export async function createProjectStructure(appName: string, answers: AppAnswer
         replacements
     )
 
+    // Copy datasource template if backend is required
+    if (answers.hasBackend) {
+        await copyTemplateFile(
+            path.join(templatesDir, 'config', 'datasource.ts.template'),
+            path.join(targetDir, 'src', 'config', 'datasource.ts'),
+            { '{{DB_TYPE}}': answers.database }
+        )
+    }
+
     // Copy sample model files
     await fse.copy(
         path.join(templatesDir, 'src', 'SampleModel.ts'),
@@ -93,95 +104,42 @@ export async function createProjectStructure(appName: string, answers: AppAnswer
         path.join(targetDir, 'src', 'data', 'SampleModel.test.ts')
     )
 
-    // Create .github/copilot-instructions.md (kept as dynamic generation)
-    const copilotInstructions = `# GitHub Copilot Instructions for ${appName}
+    // Copy templated .github/copilot-instructions.md
+    await copyTemplateFile(
+        path.join(templatesDir, '.github', 'copilot-instructions.md.template'),
+        path.join(targetDir, '.github', 'copilot-instructions.md'),
+        {
+            '{{APP_NAME}}': appName,
+            '{{APP_TYPE}}': answers.appType,
+            '{{DESCRIPTION}}': answers.description,
+            '{{HAS_BACKEND}}': answers.hasBackend ? 'Yes' : 'No',
+            '{{HAS_FRONTEND}}': answers.hasFrontend ? 'Yes' : 'No',
+            '{{DB_TYPE}}': answers.database
+        }
+    )
 
-This is a ${answers.appType} application built with Slingr.
+    // Copy package.json template
+    await copyTemplateFile(
+        path.join(templatesDir, 'package.json.template'),
+        path.join(targetDir, 'package.json'),
+        {
+            '{{APP_NAME}}': appName,
+            '{{DESCRIPTION}}': answers.description,
+            '{{APP_KEYWORD}}': answers.appType.toLowerCase().replaceAll(/\s+/g, '-')
+        }
+    )
 
-## Project Description
-${answers.description}
-
-## Architecture
-- Backend: ${answers.hasBackend ? 'Yes' : 'No'}
-- Frontend: ${answers.hasFrontend ? 'Yes' : 'No'}
-
-## Development Guidelines
-- Use TypeScript for all code
-- Follow Slingr conventions and patterns
-- Maintain clean, readable code with proper documentation
-- Use the provided data models as starting points
-`
-    await fse.writeFile(path.join(targetDir, '.github', 'copilot-instructions.md'), copilotInstructions)
-
-    // Create package.json (kept as dynamic generation)
-    const packageJson = {
-        author: '',
-        dependencies: {},
-        description: answers.description,
-        devDependencies: {
-            '@types/jest': '^29.5.0',
-            '@types/node': '^20.0.0',
-            'jest': '^29.5.0',
-            'ts-jest': '^29.1.0',
-            'ts-node': '^10.9.0',
-            'typescript': '^5.0.0',
-            'slingr-framework': 'github:slingr-stack/framework',
-            "reflect-metadata": "^0.2.2",
-            "class-transformer": "^0.5.1",
-            "class-validator": "^0.14.2",
-            "financial-number": "^4.0.4",
-        },
-        keywords: [
-            'slingr',
-            answers.appType.toLowerCase().replaceAll(/\s+/g, '-')
-        ],
-        license: 'MIT',
-        main: 'dist/index.js',
-        name: appName,
-        scripts: {
-            build: 'tsc',
-            dev: 'ts-node src/index.ts',
-            test: 'jest',
-            'test:watch': 'jest --watch'
-        },
-        version: '1.0.0'
-    }
-    await fse.outputJson(path.join(targetDir, 'package.json'), packageJson, { spaces: 2 })
-
-    // Create docs/app-description.md (kept as dynamic generation)
-    const appDescription = `# ${appName}
-
-## Overview
-${answers.description}
-
-## Application Type
-${answers.appType}
-
-## Architecture
-- **Backend**: ${answers.hasBackend ? 'Included' : 'Not included'}
-- **Frontend**: ${answers.hasFrontend ? 'Included' : 'Not included'}
-
-## Getting Started
-
-1. Install dependencies:
-   \`\`\`bash
-   npm install
-   \`\`\`
-
-2. Start development:
-   \`\`\`bash
-   npm run dev
-   \`\`\`
-
-3. Build for production:
-   \`\`\`bash
-   npm run build
-   \`\`\`
-
-## Development
-- Use TypeScript for all development
-- Follow the established patterns in the \`src/data\` directory
-- Refer to the GitHub Copilot instructions in \`.github/copilot-instructions.md\`
-`
-    await fse.writeFile(path.join(targetDir, 'docs', 'app-description.md'), appDescription)
+    // Copy docs/app-description.md template
+    await copyTemplateFile(
+        path.join(templatesDir, 'docs', 'app-description.md.template'),
+        path.join(targetDir, 'docs', 'app-description.md'),
+        {
+            '{{APP_NAME}}': appName,
+            '{{DESCRIPTION}}': answers.description,
+            '{{APP_TYPE}}': answers.appType,
+            '{{HAS_BACKEND}}': answers.hasBackend ? 'Included' : 'Not included',
+            '{{HAS_FRONTEND}}': answers.hasFrontend ? 'Included' : 'Not included',
+            '{{DB_TYPE}}': answers.database
+        }
+    )
 }

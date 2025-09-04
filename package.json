@@ -15,7 +15,7 @@
     "@types/inquirer": "^8.2.12",
     "fs-extra": "^11.3.1",
     "inquirer": "^8.2.7",
-    "slingr-framework": "github:slingr-stack/framework"
+    "slingr-framework": "github:slingr-stack/framework#feature/modelFieldConfigDS"
   },
   "devDependencies": {
     "@eslint/compat": "^1",
