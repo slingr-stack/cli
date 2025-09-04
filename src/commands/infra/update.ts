@@ -1,5 +1,6 @@
 import { Command } from '@oclif/core'
 import fs from 'fs-extra'
+import inquirer from 'inquirer'
 import * as yaml from 'js-yaml'
 import * as path from 'path'
 
@@ -23,67 +24,60 @@ export default class InfraUpdate extends Command {
     static examples = ['<%= config.bin %> <%= command.id %>']
 
     private async readDataSources(): Promise<DataSource[]> {
-        const configPath = path.join(process.cwd(), 'src', 'config', 'datasource.ts')
-        if (!fs.existsSync(configPath)) {
-            throw new Error('No datasource configuration found. Make sure you have a datasource.ts file in src/config/.')
+        const datasourcesDir = path.join(process.cwd(), 'src', 'datasources')
+        if (!fs.existsSync(datasourcesDir)) {
+            throw new Error('No datasources directory found. Make sure you have a src/datasources/ folder.')
         }
-
-        // Read the file content
-        const fileContent = await fs.readFile(configPath, 'utf-8')
-
-        // Extract the TypeORMSqlDataSource configuration with a few heuristics.
-        const extractRaw = (key: string): string | null => {
-            const re = new RegExp(key + "\\s*:\\s*([^,\n]+)", 'i')
-            const m = fileContent.match(re)
-            return m ? m[1].trim() : null
+        const files = await fs.readdir(datasourcesDir)
+        const dataSources: DataSource[] = []
+        for (const file of files) {
+            if (file.endsWith('.ts')) {
+                const filePath = path.join(datasourcesDir, file)
+                const fileContent = await fs.readFile(filePath, 'utf-8')
+                const extractRaw = (key: string): string | null => {
+                    const re = new RegExp(key + "\\s*:\\s*([^,\n]+)", 'i')
+                    const m = fileContent.match(re)
+                    return m ? m[1].trim() : null
+                }
+                const interpret = (raw: string | null): any => {
+                    if (!raw) return undefined
+                    raw = raw.replace(/,$/, '').trim()
+                    if (/^(true|false)$/i.test(raw)) return raw.toLowerCase() === 'true'
+                    let m = raw.match(/parseInt\([^|]+\|\|\s*['"]([^'"]+)['"]\)/i)
+                    if (m) return parseInt(m[1], 10)
+                    m = raw.match(/process\.env\.[A-Z0-9_]+\s*\|\|\s*['"]([^'"]+)['"]/i)
+                    if (m) return m[1]
+                    m = raw.match(/^['"]([^'"]+)['"]$/)
+                    if (m) return m[1]
+                    m = raw.match(/^(\d+)$/)
+                    if (m) return parseInt(m[1], 10)
+                    return raw
+                }
+                const typeRaw = extractRaw('type')
+                if (!typeRaw) continue
+                let typeVal = (typeRaw.match(/['"]([^'"]+)['"]/i) || [null, typeRaw])[1].toLowerCase()
+                if (typeVal === 'postgresql') typeVal = 'postgres'
+                if (!['mysql', 'postgres', 'mariadb', 'sqlite', 'mssql', 'oracle'].includes(typeVal)) {
+                    continue
+                }
+                const name = file.replace('.ts', '')
+                const dataSource: DataSource = {
+                    type: typeVal as DataSource['type'],
+                    name,
+                    managed: interpret(extractRaw('managed')) ?? undefined,
+                    host: interpret(extractRaw('host')) ?? undefined,
+                    port: interpret(extractRaw('port')) ?? (typeVal === 'mysql' ? 3306 : 5432),
+                    username: interpret(extractRaw('username')) ?? (typeVal === 'mysql' ? 'root' : 'postgres'),
+                    password: interpret(extractRaw('password')) ?? (typeVal === 'mysql' ? 'root' : 'postgres'),
+                    database: interpret(extractRaw('database')) ?? 'slingr',
+                    logging: interpret(extractRaw('logging')) ?? undefined,
+                    synchronize: interpret(extractRaw('synchronize')) ?? undefined,
+                    connectTimeout: interpret(extractRaw('connectTimeout')) ?? undefined,
+                }
+                dataSources.push(dataSource)
+            }
         }
-
-        const interpret = (raw: string | null): any => {
-            if (!raw) return undefined
-            // remove trailing commas
-            raw = raw.replace(/,$/, '').trim()
-            // boolean
-            if (/^(true|false)$/i.test(raw)) return raw.toLowerCase() === 'true'
-            // parseInt(...) || '1234' patterns
-            let m = raw.match(/parseInt\([^|]+\|\|\s*['"]([^'"]+)['"]\)/i)
-            if (m) return parseInt(m[1], 10)
-            // process.env.SOMETHING || 'default'
-            m = raw.match(/process\.env\.[A-Z0-9_]+\s*\|\|\s*['"]([^'"]+)['"]/i)
-            if (m) return m[1]
-            // string literal
-            m = raw.match(/^['"]([^'"]+)['"]$/)
-            if (m) return m[1]
-            // numeric literal
-            m = raw.match(/^(\d+)$/)
-            if (m) return parseInt(m[1], 10)
-            // fallback: return raw as-is (could be an expression)
-            return raw
-        }
-
-        const typeRaw = extractRaw('type')
-        if (!typeRaw) throw new Error('Could not find database type in configuration')
-        let typeVal = (typeRaw.match(/['"]([^'"]+)['"]/i) || [null, typeRaw])[1].toLowerCase()
-        // normalize legacy name
-        if (typeVal === 'postgresql') typeVal = 'postgres'
-        if (!['mysql', 'postgres', 'mariadb', 'sqlite', 'mssql', 'oracle'].includes(typeVal)) {
-            throw new Error(`Unsupported database type: ${typeVal}. Supported types: postgres, mysql, mariadb, sqlite, mssql, oracle.`)
-        }
-
-        const dataSource: DataSource = {
-            type: typeVal as DataSource['type'],
-            name: 'main',
-            managed: interpret(extractRaw('managed')) ?? undefined,
-            host: interpret(extractRaw('host')) ?? undefined,
-            port: interpret(extractRaw('port')) ?? (typeVal === 'mysql' ? 3306 : 5432),
-            username: interpret(extractRaw('username')) ?? (typeVal === 'mysql' ? 'root' : 'postgres'),
-            password: interpret(extractRaw('password')) ?? (typeVal === 'mysql' ? 'root' : 'postgres'),
-            database: interpret(extractRaw('database')) ?? 'slingr',
-            logging: interpret(extractRaw('logging')) ?? undefined,
-            synchronize: interpret(extractRaw('synchronize')) ?? undefined,
-            connectTimeout: interpret(extractRaw('connectTimeout')) ?? undefined,
-        }
-
-        return [dataSource]
+        return dataSources
     }
 
     private generateDockerCompose(dataSources: DataSource[]): Record<string, any> {
@@ -209,7 +203,27 @@ export default class InfraUpdate extends Command {
                 return
             }
 
-            const dockerCompose = this.generateDockerCompose(dataSources)
+            // Ask user to select which data sources to update
+            const answers = await inquirer.prompt([
+                {
+                    type: 'checkbox',
+                    name: 'selectedDataSources',
+                    message: 'Select the data sources you want to update:',
+                    choices: dataSources.map(ds => ({
+                        name: `${ds.name} (${ds.type})`,
+                        value: ds,
+                        checked: true
+                    }))
+                }
+            ])
+
+            const selectedDataSources = answers.selectedDataSources as DataSource[]
+            if (selectedDataSources.length === 0) {
+                this.log('No data sources selected. Exiting...')
+                return
+            }
+
+            const dockerCompose = this.generateDockerCompose(selectedDataSources)
             const yamlContent = yaml.dump(dockerCompose)
 
             await fs.writeFile('docker-compose.yml', yamlContent)
