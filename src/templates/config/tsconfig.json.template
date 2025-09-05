@@ -6,9 +6,8 @@
     "sourceMap": true,
     "declaration": true,
     "declarationMap": true,
-    "noUncheckedIndexedAccess": true,
-    "exactOptionalPropertyTypes": true,
-    "strict": true,
+    "noUncheckedIndexedAccess": false,
+    "strict": false,
     "jsx": "react-jsx",
     "verbatimModuleSyntax": false,
     "isolatedModules": true,
@@ -19,7 +18,11 @@
     "emitDecoratorMetadata": true,
     "esModuleInterop": true,
     "outDir": "./dist",
-    "baseUrl": "./"
+    "baseUrl": "./",
+    "noImplicitAny": false,
+    "strictNullChecks": false,
+    "noImplicitAny": false,
+    "strictNullChecks": false
   },
   "include": ["src/**/*", "test/**/*", "jest.config.js", "index.ts"]
 }

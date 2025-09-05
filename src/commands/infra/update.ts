@@ -108,7 +108,6 @@ export default class InfraUpdate extends Command {
 
     private async generateDockerCompose(dataSources: DataSource[], updateSingleService = false): Promise<Record<string, any>> {
         let compose: {
-            version: string
             services: Record<string, any>
             volumes: Record<string, null>
         }
@@ -117,21 +116,19 @@ export default class InfraUpdate extends Command {
         if (updateSingleService && await fs.pathExists('docker-compose.yml')) {
             try {
                 const existingCompose = yaml.load(await fs.readFile('docker-compose.yml', 'utf-8')) as {
-                    version?: string
                     services?: Record<string, any>
                     volumes?: Record<string, null>
                 }
                 compose = {
-                    version: existingCompose?.version || '3.8',
                     services: existingCompose?.services || {},
                     volumes: existingCompose?.volumes || {}
                 }
             } catch (error) {
                 this.warn('Could not read existing docker-compose.yml, creating new one')
-                compose = { version: '3.8', services: {}, volumes: {} }
+                compose = { services: {}, volumes: {} }
             }
         } else {
-            compose = { version: '3.8', services: {}, volumes: {} }
+            compose = { services: {}, volumes: {} }
         }
 
         dataSources.forEach(ds => {
@@ -147,10 +144,11 @@ export default class InfraUpdate extends Command {
                             POSTGRES_DB: ds.database || 'slingr',
                         },
                         healthcheck: {
-                            test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres}"],
-                            interval: "10s",
+                            test: ["CMD-SHELL", "pg_isready"],
+                            interval: "2s",
                             timeout: "5s",
-                            retries: 5
+                            retries: 15,
+                            start_period: "10s"
                         }
                     }
                     compose.volumes[`${ds.name}-data`] = null
