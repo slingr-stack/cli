@@ -24,13 +24,20 @@ export default class InfraUpdate extends Command {
     static examples = [
         '<%= config.bin %> <%= command.id %>',
         '<%= config.bin %> <%= command.id %> --file postgres.ts',
-        '<%= config.bin %> <%= command.id %> -f mysql.ts'
+        '<%= config.bin %> <%= command.id %> -f mysql.ts',
+        '<%= config.bin %> <%= command.id %> --all',
+        '<%= config.bin %> <%= command.id %> -a'
     ]
 
     static flags = {
         file: Flags.string({
             char: 'f',
             description: 'Optional: Specific data source file to update',
+            required: false
+        }),
+        all: Flags.boolean({
+            char: 'a',
+            description: 'Update all available data sources',
             required: false
         })
     }
@@ -190,8 +197,15 @@ export default class InfraUpdate extends Command {
 
             let selectedDataSources: DataSource[]
 
-            // Si hay un solo datasource o se especificó un archivo, no preguntar
-            if (dataSources.length === 1 || flags.file) {
+            if (flags.all) {
+                // Si se usa --all, seleccionar todos los datasources
+                selectedDataSources = dataSources
+                this.log(`Using all data sources (${dataSources.length} found):`)
+                dataSources.forEach(ds => {
+                    this.log(`  - ${ds.name} (${ds.type})`)
+                })
+            } else if (dataSources.length === 1 || flags.file) {
+                // Si hay un solo datasource o se especificó un archivo, no preguntar
                 selectedDataSources = dataSources
                 this.log(`Using data source: ${dataSources[0].name} (${dataSources[0].type})`)
             } else {
