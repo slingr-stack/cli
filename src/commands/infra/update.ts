@@ -6,7 +6,7 @@ import * as path from 'path'
 
 interface DataSource {
     // Allowed DB types
-    type: 'postgres' | 'mysql' | 'mariadb' | 'sqlite' | 'mssql' | 'oracle'
+    type: 'postgres' | 'mysql'
     name: string
     managed?: boolean
     host?: string
@@ -42,7 +42,7 @@ export default class InfraUpdate extends Command {
         }
 
         // Si se especifica un archivo, asegurarse de que tenga la extensión .ts
-        const normalizeFileName = (file: string) => 
+        const normalizeFileName = (file: string) =>
             file.endsWith('.ts') ? file : `${file}.ts`
 
         const files = specificFile ?
@@ -76,7 +76,8 @@ export default class InfraUpdate extends Command {
             if (!typeRaw) continue
             let typeVal = (typeRaw.match(/['"]([^'"]+)['"]/i) || [null, typeRaw])[1].toLowerCase()
             if (typeVal === 'postgresql') typeVal = 'postgres'
-            if (!['mysql', 'postgres', 'mariadb', 'sqlite', 'mssql', 'oracle'].includes(typeVal)) {
+            if (!['mysql', 'postgres'].includes(typeVal)) {
+                this.warn(`Skipping unsupported database type: ${typeVal}. Only PostgreSQL and MySQL are supported.`)
                 continue
             }
             const name = file.replace('.ts', '')
@@ -156,55 +157,6 @@ export default class InfraUpdate extends Command {
                         compose.volumes[`${ds.name}-data`] = null
                     }
                     break
-                case 'mariadb':
-                    {
-                        const env: Record<string, any> = {
-                            MARIADB_DATABASE: ds.database || 'slingr',
-                        }
-                        if ((ds.username || '').toLowerCase() === 'root') {
-                            env.MARIADB_ROOT_PASSWORD = ds.password || 'root'
-                        } else {
-                            env.MARIADB_USER = ds.username || 'slingr'
-                            env.MARIADB_PASSWORD = ds.password || 'slingr'
-                        }
-
-                        compose.services[`${ds.name}-db`] = {
-                            image: 'mariadb:10.6',
-                            ports: [`${ds.port || 3306}:3306`],
-                            volumes: [`${ds.name}-data:/var/lib/mysql`],
-                            environment: env
-                        }
-                        compose.volumes[`${ds.name}-data`] = null
-                    }
-                    break
-                case 'sqlite':
-                    // SQLite is file-based, no DB service necessary
-                    this.log(`Skipping docker service for sqlite datasource '${ds.name}' (file-based).`)
-                    break
-                case 'mssql':
-                    compose.services[`${ds.name}-db`] = {
-                        image: 'mcr.microsoft.com/mssql/server:2019-latest',
-                        ports: [`${ds.port || 1433}:1433`],
-                        environment: {
-                            SA_PASSWORD: ds.password || 'YourStrong!Passw0rd',
-                            ACCEPT_EULA: 'Y'
-                        }
-                    }
-                    compose.volumes[`${ds.name}-data`] = null
-                    break
-                case 'oracle':
-                    // Use a common Oracle XE image; user may need to adjust licenses/credentials
-                    compose.services[`${ds.name}-db`] = {
-                        image: 'gvenzl/oracle-xe:18-slim',
-                        ports: [`${ds.port || 1521}:1521`],
-                        environment: {
-                            ORACLE_PASSWORD: ds.password || 'oracle'
-                        }
-                    }
-                    compose.volumes[`${ds.name}-data`] = null
-                    break
-                default:
-                    this.warn(`Unsupported database type: ${ds.type}. Only PostgreSQL and MySQL are supported.`)
             }
         })
 
