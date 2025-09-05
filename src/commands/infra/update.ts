@@ -1,4 +1,4 @@
-import { Command } from '@oclif/core'
+import { Args, Command, Flags } from '@oclif/core'
 import fs from 'fs-extra'
 import inquirer from 'inquirer'
 import * as yaml from 'js-yaml'
@@ -21,61 +21,79 @@ interface DataSource {
 
 export default class InfraUpdate extends Command {
     static description = 'Update infrastructure configuration based on metadata'
-    static examples = ['<%= config.bin %> <%= command.id %>']
+    static examples = [
+        '<%= config.bin %> <%= command.id %>',
+        '<%= config.bin %> <%= command.id %> --file postgres.ts',
+        '<%= config.bin %> <%= command.id %> -f mysql.ts'
+    ]
 
-    private async readDataSources(): Promise<DataSource[]> {
-        const datasourcesDir = path.join(process.cwd(), 'src', 'datasources')
+    static flags = {
+        file: Flags.string({
+            char: 'f',
+            description: 'Optional: Specific data source file to update',
+            required: false
+        })
+    }
+
+    private async readDataSources(specificFile?: string): Promise<DataSource[]> {
+        const datasourcesDir = path.join(process.cwd(), 'src', 'dataSources')
         if (!fs.existsSync(datasourcesDir)) {
-            throw new Error('No datasources directory found. Make sure you have a src/datasources/ folder.')
+            throw new Error('No dataSources directory found. Make sure you have a src/dataSources/ folder.')
         }
-        const files = await fs.readdir(datasourcesDir)
+
+        // Si se especifica un archivo, asegurarse de que tenga la extensión .ts
+        const normalizeFileName = (file: string) => 
+            file.endsWith('.ts') ? file : `${file}.ts`
+
+        const files = specificFile ?
+            [normalizeFileName(specificFile)] :
+            (await fs.readdir(datasourcesDir)).filter(f => f.endsWith('.ts'))
+
         const dataSources: DataSource[] = []
         for (const file of files) {
-            if (file.endsWith('.ts')) {
-                const filePath = path.join(datasourcesDir, file)
-                const fileContent = await fs.readFile(filePath, 'utf-8')
-                const extractRaw = (key: string): string | null => {
-                    const re = new RegExp(key + "\\s*:\\s*([^,\n]+)", 'i')
-                    const m = fileContent.match(re)
-                    return m ? m[1].trim() : null
-                }
-                const interpret = (raw: string | null): any => {
-                    if (!raw) return undefined
-                    raw = raw.replace(/,$/, '').trim()
-                    if (/^(true|false)$/i.test(raw)) return raw.toLowerCase() === 'true'
-                    let m = raw.match(/parseInt\([^|]+\|\|\s*['"]([^'"]+)['"]\)/i)
-                    if (m) return parseInt(m[1], 10)
-                    m = raw.match(/process\.env\.[A-Z0-9_]+\s*\|\|\s*['"]([^'"]+)['"]/i)
-                    if (m) return m[1]
-                    m = raw.match(/^['"]([^'"]+)['"]$/)
-                    if (m) return m[1]
-                    m = raw.match(/^(\d+)$/)
-                    if (m) return parseInt(m[1], 10)
-                    return raw
-                }
-                const typeRaw = extractRaw('type')
-                if (!typeRaw) continue
-                let typeVal = (typeRaw.match(/['"]([^'"]+)['"]/i) || [null, typeRaw])[1].toLowerCase()
-                if (typeVal === 'postgresql') typeVal = 'postgres'
-                if (!['mysql', 'postgres', 'mariadb', 'sqlite', 'mssql', 'oracle'].includes(typeVal)) {
-                    continue
-                }
-                const name = file.replace('.ts', '')
-                const dataSource: DataSource = {
-                    type: typeVal as DataSource['type'],
-                    name,
-                    managed: interpret(extractRaw('managed')) ?? undefined,
-                    host: interpret(extractRaw('host')) ?? undefined,
-                    port: interpret(extractRaw('port')) ?? (typeVal === 'mysql' ? 3306 : 5432),
-                    username: interpret(extractRaw('username')) ?? (typeVal === 'mysql' ? 'root' : 'postgres'),
-                    password: interpret(extractRaw('password')) ?? (typeVal === 'mysql' ? 'root' : 'postgres'),
-                    database: interpret(extractRaw('database')) ?? 'slingr',
-                    logging: interpret(extractRaw('logging')) ?? undefined,
-                    synchronize: interpret(extractRaw('synchronize')) ?? undefined,
-                    connectTimeout: interpret(extractRaw('connectTimeout')) ?? undefined,
-                }
-                dataSources.push(dataSource)
+            const filePath = path.join(datasourcesDir, file)
+            const fileContent = await fs.readFile(filePath, 'utf-8')
+            const extractRaw = (key: string): string | null => {
+                const re = new RegExp(key + "\\s*:\\s*([^,\n]+)", 'i')
+                const m = fileContent.match(re)
+                return m ? m[1].trim() : null
             }
+            const interpret = (raw: string | null): any => {
+                if (!raw) return undefined
+                raw = raw.replace(/,$/, '').trim()
+                if (/^(true|false)$/i.test(raw)) return raw.toLowerCase() === 'true'
+                let m = raw.match(/parseInt\([^|]+\|\|\s*['"]([^'"]+)['"]\)/i)
+                if (m) return parseInt(m[1], 10)
+                m = raw.match(/process\.env\.[A-Z0-9_]+\s*\|\|\s*['"]([^'"]+)['"]/i)
+                if (m) return m[1]
+                m = raw.match(/^['"]([^'"]+)['"]$/)
+                if (m) return m[1]
+                m = raw.match(/^(\d+)$/)
+                if (m) return parseInt(m[1], 10)
+                return raw
+            }
+            const typeRaw = extractRaw('type')
+            if (!typeRaw) continue
+            let typeVal = (typeRaw.match(/['"]([^'"]+)['"]/i) || [null, typeRaw])[1].toLowerCase()
+            if (typeVal === 'postgresql') typeVal = 'postgres'
+            if (!['mysql', 'postgres', 'mariadb', 'sqlite', 'mssql', 'oracle'].includes(typeVal)) {
+                continue
+            }
+            const name = file.replace('.ts', '')
+            const dataSource: DataSource = {
+                type: typeVal as DataSource['type'],
+                name,
+                managed: interpret(extractRaw('managed')) ?? undefined,
+                host: interpret(extractRaw('host')) ?? undefined,
+                port: interpret(extractRaw('port')) ?? (typeVal === 'mysql' ? 3306 : 5432),
+                username: interpret(extractRaw('username')) ?? (typeVal === 'mysql' ? 'root' : 'postgres'),
+                password: interpret(extractRaw('password')) ?? (typeVal === 'mysql' ? 'root' : 'postgres'),
+                database: interpret(extractRaw('database')) ?? 'slingr',
+                logging: interpret(extractRaw('logging')) ?? undefined,
+                synchronize: interpret(extractRaw('synchronize')) ?? undefined,
+                connectTimeout: interpret(extractRaw('connectTimeout')) ?? undefined,
+            }
+            dataSources.push(dataSource)
         }
         return dataSources
     }
@@ -195,32 +213,41 @@ export default class InfraUpdate extends Command {
 
     async run(): Promise<void> {
         try {
+            const { flags } = await this.parse(InfraUpdate)
             this.log('Reading metadata and updating infrastructure configuration...')
 
-            const dataSources = await this.readDataSources()
+            const dataSources = await this.readDataSources(flags.file)
             if (dataSources.length === 0) {
                 this.log('No data sources found in configuration.')
                 return
             }
 
-            // Ask user to select which data sources to update
-            const answers = await inquirer.prompt([
-                {
-                    type: 'checkbox',
-                    name: 'selectedDataSources',
-                    message: 'Select the data sources you want to update:',
-                    choices: dataSources.map(ds => ({
-                        name: `${ds.name} (${ds.type})`,
-                        value: ds,
-                        checked: true
-                    }))
-                }
-            ])
+            let selectedDataSources: DataSource[]
 
-            const selectedDataSources = answers.selectedDataSources as DataSource[]
-            if (selectedDataSources.length === 0) {
-                this.log('No data sources selected. Exiting...')
-                return
+            // Si hay un solo datasource o se especificó un archivo, no preguntar
+            if (dataSources.length === 1 || flags.file) {
+                selectedDataSources = dataSources
+                this.log(`Using data source: ${dataSources[0].name} (${dataSources[0].type})`)
+            } else {
+                // Si hay múltiples datasources, mostrar selección
+                const answers = await inquirer.prompt([
+                    {
+                        type: 'checkbox',
+                        name: 'selectedDataSources',
+                        message: 'Select the data sources you want to update:',
+                        choices: dataSources.map(ds => ({
+                            name: `${ds.name} (${ds.type})`,
+                            value: ds,
+                            checked: true
+                        }))
+                    }
+                ])
+
+                selectedDataSources = answers.selectedDataSources as DataSource[]
+                if (selectedDataSources.length === 0) {
+                    this.log('No data sources selected. Exiting...')
+                    return
+                }
             }
 
             const dockerCompose = this.generateDockerCompose(selectedDataSources)

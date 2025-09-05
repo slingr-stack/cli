@@ -35,7 +35,7 @@ export async function createProjectStructure(appName: string, answers: AppAnswer
     await fse.ensureDir(path.join(targetDir, '.vscode'))
     await fse.ensureDir(path.join(targetDir, '.github'))
     await fse.ensureDir(path.join(targetDir, 'src', 'data'))
-    await fse.ensureDir(path.join(targetDir, 'src', 'datasources'))
+    await fse.ensureDir(path.join(targetDir, 'src', 'dataSources'))
     await fse.ensureDir(path.join(targetDir, 'docs'))
 
     // Copy .vscode files from templates
@@ -92,17 +92,17 @@ export async function createProjectStructure(appName: string, answers: AppAnswer
         switch (dbType) {
             case 'postgres':
             case 'postgresql':
-                templateFile = path.join(templatesDir, 'datasources', 'postgres.ts.template')
-                targetFile = path.join(targetDir, 'src', 'datasources', 'postgres.ts')
+                templateFile = path.join(templatesDir, 'dataSources', 'postgres.ts.template')
+                targetFile = path.join(targetDir, 'src', 'dataSources', 'postgres.ts')
                 break
             case 'mysql':
-                templateFile = path.join(templatesDir, 'datasources', 'mysql.ts.template')
-                targetFile = path.join(targetDir, 'src', 'datasources', 'mysql.ts')
+                templateFile = path.join(templatesDir, 'dataSources', 'mysql.ts.template')
+                targetFile = path.join(targetDir, 'src', 'dataSources', 'mysql.ts')
                 break
             // Agregar más casos si hay más templates
             default:
-                templateFile = path.join(templatesDir, 'datasources', 'postgres.ts.template')
-                targetFile = path.join(targetDir, 'src', 'datasources', 'postgres.ts')
+                templateFile = path.join(templatesDir, 'dataSources', 'postgres.ts.template')
+                targetFile = path.join(targetDir, 'src', 'dataSources', 'postgres.ts')
         }
         await copyTemplateFile(
             templateFile,
