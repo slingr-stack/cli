@@ -48,7 +48,7 @@ export default class InfraUpdate extends Command {
             throw new Error('No dataSources directory found. Make sure you have a src/dataSources/ folder.')
         }
 
-        // Si se especifica un archivo, asegurarse de que tenga la extensión .ts
+        // Ensure file has .ts extension if specified
         const normalizeFileName = (file: string) =>
             file.endsWith('.ts') ? file : `${file}.ts`
 
@@ -106,15 +106,32 @@ export default class InfraUpdate extends Command {
         return dataSources
     }
 
-    private generateDockerCompose(dataSources: DataSource[]): Record<string, any> {
-        const compose: {
+    private async generateDockerCompose(dataSources: DataSource[], updateSingleService = false): Promise<Record<string, any>> {
+        let compose: {
             version: string
             services: Record<string, any>
             volumes: Record<string, null>
-        } = {
-            version: '3.8',
-            services: {},
-            volumes: {},
+        }
+
+        // Read existing docker-compose.yml when updating a single service
+        if (updateSingleService && await fs.pathExists('docker-compose.yml')) {
+            try {
+                const existingCompose = yaml.load(await fs.readFile('docker-compose.yml', 'utf-8')) as {
+                    version?: string
+                    services?: Record<string, any>
+                    volumes?: Record<string, null>
+                }
+                compose = {
+                    version: existingCompose?.version || '3.8',
+                    services: existingCompose?.services || {},
+                    volumes: existingCompose?.volumes || {}
+                }
+            } catch (error) {
+                this.warn('Could not read existing docker-compose.yml, creating new one')
+                compose = { version: '3.8', services: {}, volumes: {} }
+            }
+        } else {
+            compose = { version: '3.8', services: {}, volumes: {} }
         }
 
         dataSources.forEach(ds => {
@@ -198,18 +215,18 @@ export default class InfraUpdate extends Command {
             let selectedDataSources: DataSource[]
 
             if (flags.all) {
-                // Si se usa --all, seleccionar todos los datasources
+                // When using --all flag, select all available data sources
                 selectedDataSources = dataSources
                 this.log(`Using all data sources (${dataSources.length} found):`)
                 dataSources.forEach(ds => {
                     this.log(`  - ${ds.name} (${ds.type})`)
                 })
             } else if (dataSources.length === 1 || flags.file) {
-                // Si hay un solo datasource o se especificó un archivo, no preguntar
+                // Auto-select when there's only one data source or when using --file flag
                 selectedDataSources = dataSources
                 this.log(`Using data source: ${dataSources[0].name} (${dataSources[0].type})`)
             } else {
-                // Si hay múltiples datasources, mostrar selección
+                // Show interactive selection for multiple data sources
                 const answers = await inquirer.prompt([
                     {
                         type: 'checkbox',
@@ -230,7 +247,10 @@ export default class InfraUpdate extends Command {
                 }
             }
 
-            const dockerCompose = this.generateDockerCompose(selectedDataSources)
+            // Check if we're updating a single service
+            const isSingleUpdate = selectedDataSources.length === 1 && !flags.all
+
+            const dockerCompose = await this.generateDockerCompose(selectedDataSources, isSingleUpdate)
             const yamlContent = yaml.dump(dockerCompose)
 
             await fs.writeFile('docker-compose.yml', yamlContent)
