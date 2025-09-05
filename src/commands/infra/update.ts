@@ -6,7 +6,7 @@ import * as path from 'path'
 
 interface DataSource {
     // Allowed DB types
-    type: 'postgres' | 'mysql'
+    type: 'postgres' | 'mysql' | 'sqlite'
     name: string
     managed?: boolean
     host?: string
@@ -76,8 +76,8 @@ export default class InfraUpdate extends Command {
             if (!typeRaw) continue
             let typeVal = (typeRaw.match(/['"]([^'"]+)['"]/i) || [null, typeRaw])[1].toLowerCase()
             if (typeVal === 'postgresql') typeVal = 'postgres'
-            if (!['mysql', 'postgres'].includes(typeVal)) {
-                this.warn(`Skipping unsupported database type: ${typeVal}. Only PostgreSQL and MySQL are supported.`)
+            if (!['mysql', 'postgres', 'sqlite'].includes(typeVal)) {
+                this.warn(`Skipping unsupported database type: ${typeVal}. Only PostgreSQL, MySQL and SQLite are supported.`)
                 continue
             }
             const name = file.replace('.ts', '')
@@ -156,6 +156,20 @@ export default class InfraUpdate extends Command {
                         }
                         compose.volumes[`${ds.name}-data`] = null
                     }
+                    break
+                case 'sqlite':
+                    // SQLite stores its data in a file, so we need a volume to persist it
+                    compose.services[`${ds.name}-db`] = {
+                        image: 'keinos/sqlite3:latest',
+                        volumes: [
+                            `${ds.name}-data:/data`
+                        ],
+                        environment: {
+                            DB_FILE: ds.database || 'slingr.db'
+                        },
+                        command: ["sh", "-c", "sqlite3 /data/${DB_FILE}"]
+                    }
+                    compose.volumes[`${ds.name}-data`] = null
                     break
             }
         })
