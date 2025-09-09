@@ -107,6 +107,31 @@ export default class Run extends Command {
         execSync('npm run build', { stdio: 'inherit' })
     }
 
+    private async buildFramework(): Promise<void> {
+        this.log('Building slingr-framework...')
+        const currentDir = process.cwd()
+        const nodeModulesPath = path.join(currentDir, 'node_modules', 'slingr-framework')
+        
+        this.log(`Looking for slingr-framework in: ${nodeModulesPath}`)
+        
+        if (!await fs.pathExists(nodeModulesPath)) {
+            this.error('slingr-framework not found in node_modules. Please run npm install first.')
+        }
+
+        try {
+            this.log('Changing to framework directory...')
+            process.chdir(nodeModulesPath)
+            
+            this.log('Building framework...')
+            execSync('npm run build', { stdio: 'inherit' })
+        } catch (error) {
+            this.error(`Failed to build framework: ${(error as Error).message}`)
+        } finally {
+            this.log('Returning to project directory...')
+            process.chdir(currentDir)
+        }
+    }
+
     public async run(): Promise<void> {
         const { flags } = await this.parse(Run)
 
@@ -122,10 +147,13 @@ export default class Run extends Command {
                 this.error('This directory does not contain a Slingr application.')
             }
 
-            // Step 1: Generate code
+            // Step 1: Build slingr-framework
+            await this.buildFramework()
+
+            // Step 2: Generate code
             await this.generateCode()
 
-            // Step 2 & 3: Update and check infrastructure
+            // Step 3: Update and check infrastructure
             if (!flags['skip-infra']) {
                 await this.checkInfrastructure()
             }
