@@ -16,7 +16,7 @@
   "author": "",
   "license": "MIT",
   "dependencies": {
-    "slingr-framework": "github:slingr-stack/framework"
+    "slingr-framework": "github:slingr-stack/framework#fix/projectSettings"
   },
   "devDependencies": {
     "@types/jest": "^29.5.0",
