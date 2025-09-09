@@ -35,7 +35,7 @@ export async function createProjectStructure(appName: string, answers: AppAnswer
     await fse.ensureDir(path.join(targetDir, '.vscode'))
     await fse.ensureDir(path.join(targetDir, '.github'))
     await fse.ensureDir(path.join(targetDir, 'src', 'data'))
-    await fse.ensureDir(path.join(targetDir, 'src', 'config'))
+    await fse.ensureDir(path.join(targetDir, 'src', 'dataSources'))
     await fse.ensureDir(path.join(targetDir, 'docs'))
 
     // Copy .vscode files from templates
@@ -84,12 +84,30 @@ export async function createProjectStructure(appName: string, answers: AppAnswer
         replacements
     )
 
-    // Copy datasource template if backend is required
+    // Copiar el template de datasource correspondiente según el tipo de base de datos
     if (answers.hasBackend) {
+        let dbType = answers.database.toLowerCase()
+        let templateFile = ''
+        let targetFile = ''
+        switch (dbType) {
+            case 'postgres':
+            case 'postgresql':
+                templateFile = path.join(templatesDir, 'dataSources', 'postgres.ts.template')
+                targetFile = path.join(targetDir, 'src', 'dataSources', 'postgres.ts')
+                break
+            case 'mysql':
+                templateFile = path.join(templatesDir, 'dataSources', 'mysql.ts.template')
+                targetFile = path.join(targetDir, 'src', 'dataSources', 'mysql.ts')
+                break
+            // Agregar más casos si hay más templates
+            default:
+                templateFile = path.join(templatesDir, 'dataSources', 'postgres.ts.template')
+                targetFile = path.join(targetDir, 'src', 'dataSources', 'postgres.ts')
+        }
         await copyTemplateFile(
-            path.join(templatesDir, 'config', 'datasource.ts.template'),
-            path.join(targetDir, 'src', 'config', 'datasource.ts'),
-            { '{{DB_TYPE}}': answers.database }
+            templateFile,
+            targetFile,
+            { '{{APP_NAME}}': appName }
         )
     }
 
