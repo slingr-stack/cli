@@ -1,6 +1,5 @@
 import fse from 'fs-extra'
 import path from 'node:path'
-import { fileURLToPath } from 'node:url'
 
 export interface AppAnswers {
     appType: string
@@ -25,7 +24,8 @@ async function copyTemplateFile(templatePath: string, targetPath: string, replac
 
 export async function createProjectStructure(appName: string, answers: AppAnswers): Promise<void> {
     const targetDir = path.join(process.cwd(), appName)
-    const currentDir = path.dirname(fileURLToPath(import.meta.url))
+    // Use __dirname instead of import.meta.url
+    const currentDir = __dirname
     // When running from dist/, we need to go up one level to reach the project root
     const projectRoot = path.resolve(currentDir, '..')
     const templatesDir = path.join(projectRoot, 'src', 'templates')
@@ -37,6 +37,7 @@ export async function createProjectStructure(appName: string, answers: AppAnswer
     await fse.ensureDir(path.join(targetDir, 'src', 'data'))
     await fse.ensureDir(path.join(targetDir, 'src', 'dataSources'))
     await fse.ensureDir(path.join(targetDir, 'docs'))
+    await fse.ensureDir(path.join(targetDir, 'datasets'))
 
     // Copy .vscode files from templates
     await fse.copy(
@@ -160,4 +161,20 @@ export async function createProjectStructure(appName: string, answers: AppAnswer
             '{{DB_TYPE}}': answers.database
         }
     )
+
+    // Copy dataset templates if backend is enabled
+    if (answers.hasBackend) {
+        const dbType = answers.database.toLowerCase()
+        const datasetSourcePath = path.join(templatesDir, 'datasets', `${dbType}-default`)
+        const datasetTargetPath = path.join(targetDir, 'datasets', `${dbType}-default`)
+
+        // Create the dataset directory
+        await fse.ensureDir(datasetTargetPath)
+
+        // Copy the JSONL template without the .template extension
+        await copyTemplateFile(
+            path.join(datasetSourcePath, 'Person.jsonl.template'),
+            path.join(datasetTargetPath, 'Person.jsonl')
+        )
+    }
 }

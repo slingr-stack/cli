@@ -1,5 +1,5 @@
 #!/usr/bin/env node
 
-import {execute} from '@oclif/core'
+const {execute} = require('@oclif/core')
 
-await execute({dir: import.meta.url})
+execute({dir: __dirname})

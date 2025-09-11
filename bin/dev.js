@@ -1,5 +1,5 @@
-#!/usr/bin/env -S node --loader ts-node/esm --disable-warning=ExperimentalWarning
+#!/usr/bin/env node
 
-import {execute} from '@oclif/core'
+const {execute} = require('@oclif/core')
 
-await execute({development: true, dir: import.meta.url})
+execute({development: true, dir: __dirname})

@@ -2,6 +2,7 @@ import { Args, Command } from '@oclif/core'
 import fs from 'fs-extra'
 import path from 'node:path'
 import { TypeORMSqlDataSource } from 'slingr-framework'
+import { DataSource, DataSourceOptions } from 'typeorm'
 
 export default class Ds extends Command {
     static description = 'Manage datasets for datasources'
@@ -79,14 +80,14 @@ export default class Ds extends Command {
         // Import the datasource module
         const dsModulePath = path.join(process.cwd(), 'src', 'dataSources', `${datasource}.ts`)
         const dsModule = require(dsModulePath)
-        const dsInstance = dsModule[`${datasource}DataSource`] as TypeORMSqlDataSource
+        const dsConfig = dsModule[`${datasource}DataSource`] as TypeORMSqlDataSource
 
-        if (!dsInstance) {
+        if (!dsConfig) {
             this.error(`Could not find datasource instance ${datasource}DataSource in ${dsModulePath}`)
         }
 
-        // Initialize the datasource
-        await dsInstance.initialize()
+        // Initialize the datasource with its configuration
+        const dataSource = await dsConfig.initialize(dsConfig.getOptions())
 
         try {
             // Process each JSONL file
@@ -101,8 +102,8 @@ export default class Ds extends Command {
                     .filter(line => line.trim())
                     .map(line => JSON.parse(line))
 
-                // Get the repository for this model
-                const repository = dsInstance.getRepository(modelName)
+                // Get the repository for this model from the DataSource
+                const repository = (dataSource as DataSource).getRepository(modelName)
 
                 // Clear existing data
                 await repository.clear()
@@ -117,7 +118,7 @@ export default class Ds extends Command {
 
         } finally {
             // Always clean up by closing the datasource connection
-            await dsInstance.destroy()
+            await (dataSource as DataSource).destroy()
         }
     }
 }
