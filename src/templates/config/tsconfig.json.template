@@ -6,7 +6,7 @@
     "sourceMap": true,
     "declaration": true,
     "declarationMap": true,
-    "noUncheckedIndexedAccess": true,
+    "noUncheckedIndexedAccess": false,
     "exactOptionalPropertyTypes": true,
     "strict": true,
     "jsx": "react-jsx",
@@ -18,8 +18,8 @@
     "experimentalDecorators": true,
     "emitDecoratorMetadata": true,
     "esModuleInterop": true,
-    "outDir": "./dist",
-    "baseUrl": "./"
+    "outDir": "./dist"
   },
-  "include": ["src/**/*", "test/**/*", "jest.config.js", "index.ts"]
+  "include": ["src/**/*", "test/**/*", "jest.config.js", "index.ts"],
+  "exclude": ["node_modules", "dist"]
 }

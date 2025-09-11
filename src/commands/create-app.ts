@@ -52,7 +52,7 @@ export default class CreateApp extends Command {
 
     // If no name is provided, ask for it
     if (!appName) {
-      const response = await inquirer.prompt<{name: string}>([
+      const response = await inquirer.prompt<{ name: string }>([
         {
           type: 'input',
           name: 'name',
