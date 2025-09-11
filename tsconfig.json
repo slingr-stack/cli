@@ -1,17 +1,28 @@
 {
   "compilerOptions": {
+    "module": "commonjs",
+    "target": "esnext",
+    "types": ["node"],
+    "sourceMap": true,
     "declaration": true,
-    "module": "Node16",
-    "outDir": "dist",
-    "rootDir": "src",
+    "declarationMap": true,
+    "noUncheckedIndexedAccess": false,
+    "exactOptionalPropertyTypes": true,
     "strict": true,
-    "target": "es2022",
-    "moduleResolution": "node16"
+    "jsx": "react-jsx",
+    "verbatimModuleSyntax": false,
+    "isolatedModules": true,
+    "noUncheckedSideEffectImports": true,
+    "moduleDetection": "force",
+    "skipLibCheck": true,
+    "experimentalDecorators": true,
+    "emitDecoratorMetadata": true,
+    "esModuleInterop": true,
+    "outDir": "./dist"
   },
   "include": ["./src/**/*"],
   "exclude": ["./src/templates/**/*"],
   "ts-node": {
     "esm": true
-  },
-  
+  }
 }
