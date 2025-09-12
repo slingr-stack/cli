@@ -1,6 +1,7 @@
 import { Args, Command } from '@oclif/core'
 import fs from 'fs-extra'
 import path from 'node:path'
+import { execSync } from 'child_process'
 import { TypeORMSqlDataSource } from 'slingr-framework'
 import { DataSource, EntitySchema } from 'typeorm'
 import { JsonlDatasetLoader, discoverModels } from '../utils/jsonl-loader.js'
@@ -56,6 +57,8 @@ export default class Ds extends Command {
         try {
             switch (action) {
                 case 'load':
+                    // Prepare the environment before loading
+                    await this.prepareEnvironment()
                     await this.loadDataset(datasource, dataset)
                     break
                 default:
@@ -66,6 +69,63 @@ export default class Ds extends Command {
         }
     }
 
+    private async buildFramework(): Promise<void> {
+        this.log('Building slingr-framework...')
+        const currentDir = process.cwd()
+        const nodeModulesPath = path.join(currentDir, 'node_modules', 'slingr-framework')
+
+        this.log(`Looking for slingr-framework in: ${nodeModulesPath}`)
+
+        if (!await fs.pathExists(nodeModulesPath)) {
+            this.error('slingr-framework not found in node_modules. Please run npm install first.')
+        }
+
+        try {
+            this.log('Building framework...')
+            process.chdir(nodeModulesPath)
+
+            execSync('npm run build', { stdio: 'inherit' })
+        } catch (error) {
+            this.error(`Failed to build framework: ${(error as Error).message}`)
+        } finally {
+            process.chdir(currentDir)
+        }
+    }
+
+    private async generateCode(): Promise<void> {
+        // Compile TypeScript code
+        this.log('Compiling TypeScript code...')
+        execSync('npm run build', { stdio: 'inherit' })
+    }
+
+    private async prepareEnvironment(): Promise<void> {
+        // Check if we have package.json with slingr-framework dependency
+        const packageJsonPath = path.join(process.cwd(), 'package.json')
+        const packageJson = await fs.readJSON(packageJsonPath)
+
+        if (!packageJson.dependencies?.['slingr-framework']) {
+            this.error('This directory does not contain a Slingr application.')
+        }
+
+        // Check if node_modules exists, if not tell user to install dependencies
+        const nodeModulesPath = path.join(process.cwd(), 'node_modules')
+        if (!await fs.pathExists(nodeModulesPath)) {
+            this.error('Dependencies not found. Please run "npm install" first to install the required dependencies.')
+        }
+
+        // Check if slingr-framework is specifically installed
+        const frameworkPath = path.join(nodeModulesPath, 'slingr-framework')
+        if (!await fs.pathExists(frameworkPath)) {
+            this.error('slingr-framework not found in node_modules. Please run "npm install" to install dependencies.')
+        }
+
+        // Step 1: Build slingr-framework
+        await this.buildFramework()
+
+        // Step 2: Generate code
+        await this.generateCode()
+    }
+
     private async loadDataset(datasource: string, dataset: string): Promise<void> {
         this.log(`Loading dataset '${dataset}' into datasource '${datasource}'...`)
 
@@ -74,10 +134,10 @@ export default class Ds extends Command {
 
         // Path to the compiled JavaScript files
         const distPath = path.join(process.cwd(), 'dist')
-        
+
         // Auto-discover models from compiled JS files
         const modelMap = await discoverModels(distPath)
-        
+
         if (Object.keys(modelMap).length === 0) {
             this.error('No models found. Please ensure your models are compiled (run npm run build) and extend BaseModel.')
         }
@@ -115,7 +175,7 @@ export default class Ds extends Command {
                 const ModelClass = modelMap[result.modelName]
                 const sampleRecord = loader.convertToDbFormat([result.records[0]], false)[0]
                 const schema = loader.inferDbSchema(sampleRecord)
-                
+
                 // Create EntitySchema with inferred columns
                 const entitySchema = new EntitySchema({
                     name: result.modelName,
@@ -123,7 +183,7 @@ export default class Ds extends Command {
                     target: ModelClass,
                     columns: this.createColumnsFromSchema(schema)
                 })
-                
+
                 entities.push(entitySchema)
             }
         }
@@ -135,7 +195,64 @@ export default class Ds extends Command {
         }
 
         // Initialize the datasource with its configuration
-        await dsConfig.initialize(options)
+        try {
+            this.log(`Attempting to connect to database: ${JSON.stringify(dsConfig.getOptions(), null, 2)}`)
+            await dsConfig.initialize(options)
+        } catch (error) {
+            const errorMessage = (error as Error).message
+            this.log(`Connection failed with error: ${errorMessage}`)
+
+            // Check if docker-compose.yml exists
+            const dockerComposePath = path.join(process.cwd(), 'docker-compose.yml')
+            const hasDockerCompose = await fs.pathExists(dockerComposePath)
+
+            // Helper function to check if error contains connection refused
+            const isConnectionRefused = (err: any): boolean => {
+                // Check the main error
+                if (err.code === 'ECONNREFUSED') return true
+                if (err.message?.includes('ECONNREFUSED')) return true
+                if (err.message?.includes('connection refused')) return true
+                
+                // Check nested errors in AggregateError
+                if (err.errors && Array.isArray(err.errors)) {
+                    return err.errors.some((nestedErr: any) => isConnectionRefused(nestedErr))
+                }
+                
+                // Check cause property
+                if (err.cause) {
+                    return isConnectionRefused(err.cause)
+                }
+                
+                return false
+            }
+
+            // Check for TypeORM initialization failures (usually connection issues)
+            if (errorMessage.includes('Failed to initialize TypeORM DataSource')) {
+                if (hasDockerCompose) {
+                    this.error(`Cannot connect to database server. The database infrastructure exists but is not running.\n\nTo fix this, run one of the following commands:\n  - slingr run (to start the full application with infrastructure)\n  - docker-compose up -d (to start just the infrastructure services)`)
+                } else {
+                    this.error(`Cannot connect to database server. The database infrastructure has not been set up yet.\n\nTo fix this, you have two options:\n\n1. Simple option:\n  - slingr run (automatically generates infrastructure and starts the application)\n\n2. Step-by-step option:\n  - slingr infra:update --all (to generate docker-compose.yml and infrastructure files)\n  - Then run: slingr run OR docker-compose up -d`)
+                }
+            }
+
+            // Check for connection refused errors
+            if (isConnectionRefused(error)) {
+                if (hasDockerCompose) {
+                    this.error(`Cannot connect to database server. The database infrastructure exists but is not running.\n\nTo fix this, run one of the following commands:\n  - slingr run (to start the full application with infrastructure)\n  - docker-compose up -d (to start just the infrastructure services)`)
+                } else {
+                    this.error(`Cannot connect to database server. The database infrastructure has not been set up yet.\n\nTo fix this, you have two options:\n\n1. Simple option:\n  - slingr run (automatically generates infrastructure and starts the application)\n\n2. Step-by-step option:\n  - slingr infra:update --all (to generate docker-compose.yml and infrastructure files)\n  - Then run: slingr run OR docker-compose up -d`)
+                }
+            }
+
+            // Check for database not found errors
+            if (errorMessage.includes('database') && errorMessage.includes('does not exist')) {
+                this.error(`Database infrastructure not found. The database server is not running or the database does not exist.\n\nTo fix this, run the following command:\n  - slingr run (to start the full application with infrastructure)`)
+            }
+
+            // Re-throw other errors
+            throw error
+        }
+
         const dataSource = dsConfig.getTypeORMDataSource()
 
         if (!dataSource || !dataSource.isInitialized) {

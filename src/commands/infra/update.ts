@@ -3,6 +3,7 @@ import fs from 'fs-extra'
 import inquirer from 'inquirer'
 import * as yaml from 'js-yaml'
 import * as path from 'path'
+import { findDatabasePort } from '../../utils/port-utils.js'
 
 interface DataSource {
     // Allowed DB types
@@ -131,12 +132,21 @@ export default class InfraUpdate extends Command {
             compose = { services: {}, volumes: {} }
         }
 
-        dataSources.forEach(ds => {
+        // Store port mappings to update datasource files later
+        const portMappings: Record<string, number> = {}
+
+        for (const ds of dataSources) {
+            // Find available port for this database type
+            const availablePort = await findDatabasePort(ds.type)
+            portMappings[ds.name] = availablePort
+
+            this.log(`Using port ${availablePort} for ${ds.name} (${ds.type})`)
+
             switch (ds.type) {
                 case 'postgres':
                     compose.services[`${ds.name}-db`] = {
                         image: 'postgres:15-alpine',
-                        ports: [`${ds.port || 5432}:5432`],
+                        ports: [`${availablePort}:5432`],
                         volumes: [`${ds.name}-data:/var/lib/postgresql/data`],
                         environment: {
                             POSTGRES_USER: ds.username || 'postgres',
@@ -167,7 +177,7 @@ export default class InfraUpdate extends Command {
 
                         compose.services[`${ds.name}-db`] = {
                             image: 'mysql:8.0',
-                            ports: [`${ds.port || 3306}:3306`],
+                            ports: [`${availablePort}:3306`],
                             volumes: [`${ds.name}-data:/var/lib/mysql`],
                             environment: env,
                             healthcheck: {
@@ -194,9 +204,35 @@ export default class InfraUpdate extends Command {
                     compose.volumes[`${ds.name}-data`] = null
                     break
             }
-        })
+        }
+
+        // Update datasource files with the new ports
+        await this.updateDataSourcePorts(portMappings)
 
         return compose
+    }
+
+    /**
+     * Update datasource files with new port configurations
+     */
+    private async updateDataSourcePorts(portMappings: Record<string, number>): Promise<void> {
+        const datasourcesDir = path.join(process.cwd(), 'src', 'dataSources')
+
+        for (const [dsName, port] of Object.entries(portMappings)) {
+            const dsFilePath = path.join(datasourcesDir, `${dsName}.ts`)
+
+            if (await fs.pathExists(dsFilePath)) {
+                let content = await fs.readFile(dsFilePath, 'utf-8')
+
+                // Update port configuration using regex
+                // Match patterns like: port: 5432, port:  5432, port: parseInt(...) etc.
+                const portRegex = /(\s+port:\s*)[^,\n]+/g
+                content = content.replace(portRegex, `$1 ${port}`)
+
+                await fs.writeFile(dsFilePath, content)
+                this.log(`Updated ${dsName}.ts with port ${port}`)
+            }
+        }
     }
 
     async run(): Promise<void> {
