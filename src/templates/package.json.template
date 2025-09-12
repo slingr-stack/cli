@@ -1,7 +1,7 @@
 {
-  "name": "{{APP_NAME}}",
+  "name": "test",
   "version": "1.0.0",
-  "description": "{{DESCRIPTION}}",
+  "description": "Esto es un test",
   "main": "dist/index.js",
   "scripts": {
     "build": "tsc",
@@ -11,12 +11,13 @@
   },
   "keywords": [
     "slingr",
-    "{{APP_KEYWORD}}"
+    "crm"
   ],
   "author": "",
   "license": "MIT",
   "dependencies": {
-    "slingr-framework": "github:slingr-stack/framework#fix/projectSettings"
+    "slingr-framework": "github:slingr-stack/framework#fix/projectSettings",
+    "pg": "^8.16.3"
   },
   "devDependencies": {
     "@types/jest": "^29.5.0",

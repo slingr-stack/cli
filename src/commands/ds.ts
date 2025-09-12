@@ -2,8 +2,8 @@ import { Args, Command } from '@oclif/core'
 import fs from 'fs-extra'
 import path from 'node:path'
 import { TypeORMSqlDataSource } from 'slingr-framework'
-import { DataSource, EntitySchema, EntityMetadata } from 'typeorm'
-import { glob } from 'glob'
+import { DataSource, EntitySchema } from 'typeorm'
+import { JsonlDatasetLoader, discoverModels } from '../utils/jsonl-loader.js'
 
 export default class Ds extends Command {
     static description = 'Manage datasets for datasources'
@@ -66,106 +66,66 @@ export default class Ds extends Command {
         }
     }
 
-    private async findEntities(): Promise<EntitySchema[]> {
-        const distPath = path.join(process.cwd(), 'dist')
-        const srcPath = path.join(process.cwd(), 'src', 'data')
-        const entities: EntitySchema[] = []
-
-        // Intentar cargar desde dist primero (compilado)
-        if (await fs.pathExists(distPath)) {
-            const entityFiles = await glob(path.join(distPath, 'data', '**', '*.js'))
-            for (const file of entityFiles) {
-                try {
-                    const module = require(file)
-                    const exports = Object.values(module)
-                    for (const exp of exports) {
-                        if (typeof exp === 'function' && exp.prototype && exp.name) {
-                            // Crear un EntitySchema para cada modelo Slingr
-                            const schema = new EntitySchema({
-                                name: exp.name,
-                                tableName: exp.name.toLowerCase(),
-                                target: exp,
-                                columns: {
-                                    // Nota: usando snake_case para nombres de columnas en PostgreSQL
-                                    id: {
-                                        type: String,
-                                        primary: true
-                                    },
-                                    first_name: {
-                                        type: String,
-                                        name: 'first_name'
-                                    },
-                                    last_name: {
-                                        type: String,
-                                        name: 'last_name'
-                                    },
-                                    email: { type: String },
-                                    age: { type: Number },
-                                    parent_email: {
-                                        type: String,
-                                        name: 'parent_email',
-                                        nullable: true
-                                    },
-                                    internal_id: {
-                                        type: String,
-                                        name: 'internal_id',
-                                        nullable: true
-                                    },
-                                    phone_number: {
-                                        type: String,
-                                        name: 'phone_number',
-                                        nullable: true
-                                    },
-                                    additional_info: {
-                                        type: String,
-                                        name: 'additional_info',
-                                        nullable: true
-                                    },
-                                    is_active: {
-                                        type: Boolean,
-                                        name: 'is_active',
-                                        nullable: true
-                                    }
-                                }
-                            })
-                            entities.push(schema)
-                        }
-                    }
-                } catch (error) {
-                    this.warn(`Failed to load entity from file: ${file}: ${error}`)
-                }
-            }
-        }
-
-        if (entities.length === 0) {
-            this.warn('No entities found in either dist/ or src/')
-        }
-
-        return entities
-    }
-
     private async loadDataset(datasource: string, dataset: string): Promise<void> {
         this.log(`Loading dataset '${dataset}' into datasource '${datasource}'...`)
 
-        // Detect entities automatically
-        const entities = await this.findEntities()
+        // Initialize the JSONL loader
+        const loader = new JsonlDatasetLoader()
 
-        // Find all JSONL files in the dataset directory
-        const datasetPath = path.join(process.cwd(), 'datasets', `${datasource}-${dataset}`)
-        const files = await fs.readdir(datasetPath)
-        const jsonlFiles = files.filter(f => f.endsWith('.jsonl'))
-
-        if (jsonlFiles.length === 0) {
-            this.error(`No JSONL files found in dataset directory: ${datasetPath}`)
+        // Path to the compiled JavaScript files
+        const distPath = path.join(process.cwd(), 'dist')
+        
+        // Auto-discover models from compiled JS files
+        const modelMap = await discoverModels(distPath)
+        
+        if (Object.keys(modelMap).length === 0) {
+            this.error('No models found. Please ensure your models are compiled (run npm run build) and extend BaseModel.')
         }
 
-        // Import the datasource module
-        const dsModulePath = path.join(process.cwd(), 'src', 'dataSources', `${datasource}.ts`)
+        this.log(`Discovered ${Object.keys(modelMap).length} models:`, Object.keys(modelMap))
+
+        // Dataset directory path
+        const datasetPath = path.join(process.cwd(), 'datasets', `${datasource}-${dataset}`)
+
+        // Load dataset using the new JSONL loader
+        const loadResults = await loader.loadDataset({
+            datasetPath,
+            modelMap,
+            validateRecords: true,
+            verbose: true
+        })
+
+        if (loadResults.length === 0) {
+            this.error('No compatible JSONL files found or no models matched the file names.')
+        }
+
+        // Import the datasource module from compiled JS
+        const dsModulePath = path.join(process.cwd(), 'dist', 'dataSources', `${datasource}.js`)
         const dsModule = require(dsModulePath)
         const dsConfig = dsModule[`${datasource}DataSource`] as TypeORMSqlDataSource
 
         if (!dsConfig) {
             this.error(`Could not find datasource instance ${datasource}DataSource in ${dsModulePath}`)
+        }
+
+        // Create EntitySchemas for each model we found data for
+        const entities: EntitySchema[] = []
+        for (const result of loadResults) {
+            if (result.records.length > 0) {
+                const ModelClass = modelMap[result.modelName]
+                const sampleRecord = loader.convertToDbFormat([result.records[0]], false)[0]
+                const schema = loader.inferDbSchema(sampleRecord)
+                
+                // Create EntitySchema with inferred columns
+                const entitySchema = new EntitySchema({
+                    name: result.modelName,
+                    tableName: result.modelName.toLowerCase(),
+                    target: ModelClass,
+                    columns: this.createColumnsFromSchema(schema)
+                })
+                
+                entities.push(entitySchema)
+            }
         }
 
         // Get the datasource options and add the entities
@@ -176,120 +136,138 @@ export default class Ds extends Command {
 
         // Initialize the datasource with its configuration
         await dsConfig.initialize(options)
+        const dataSource = dsConfig.getTypeORMDataSource()
 
-        // Access internal TypeORM DataSource after initialization
-        const dataSource = (dsConfig as any).typeormDataSource as DataSource
-
-        if (!dataSource?.isInitialized) {
+        if (!dataSource || !dataSource.isInitialized) {
             this.error('DataSource failed to initialize')
         }
 
         this.log('DataSource initialized successfully')
 
-        // Set up a queryRunner for transaction management
-        const queryRunner = dataSource.createQueryRunner()
-        await queryRunner.connect()
-
+        // Process each load result using auto-commit (no explicit transactions)
         try {
-            // Start a transaction for the entire process
-            await queryRunner.startTransaction()
-
-            // Process each JSONL file
-            for (const file of jsonlFiles) {
-                const modelName = path.basename(file, '.jsonl')
-                this.log(`Loading data for model: ${modelName}`)
-
-                try {
-                    // Read and parse the JSONL file
-                    const filePath = path.join(datasetPath, file)
-                    const content = await fs.readFile(filePath, 'utf8')
-                    const records = content.split('\n')
-                        .filter(line => line.trim())
-                        .map(line => {
-                            const data = JSON.parse(line)
-                            // Convert property names to snake_case
-                            return {
-                                id: data.id,
-                                first_name: data.firstName,
-                                last_name: data.lastName,
-                                email: data.email,
-                                age: data.age,
-                                parent_email: data.parentEmail,
-                                internal_id: data.internalId,
-                                phone_number: data.phoneNumber,
-                                additional_info: data.additionalInfo,
-                                is_active: data.isActive
-                            }
-                        })
-
-                    // Find the corresponding entity
-                    const entity = entities.find(e => e.options.name === modelName)
-                    if (!entity) {
-                        throw new Error(`No entity found for model: ${modelName}`)
+            for (const result of loadResults) {
+                if (result.errorCount > 0) {
+                    this.log(`⚠️  Model ${result.modelName} has ${result.errorCount} validation errors:`)
+                    for (const error of result.errors) {
+                        this.log(`   Record ${error.recordIndex + 1}: ${JSON.stringify(error.validationErrors)}`)
                     }
-
-                    this.log(`Found entity: ${entity.options.name}`)
-                    this.log('Creating table...')
-
-                    // Drop and recreate the table
-                    await queryRunner.query(`DROP TABLE IF EXISTS "${modelName.toLowerCase()}";`)
-
-                    const createTableSQL = `CREATE TABLE "${modelName.toLowerCase()}" (
-                        id TEXT PRIMARY KEY,
-                        first_name TEXT,
-                        last_name TEXT,
-                        email TEXT,
-                        age INTEGER,
-                        parent_email TEXT,
-                        internal_id TEXT,
-                        phone_number TEXT,
-                        additional_info TEXT,
-                        is_active BOOLEAN
-                    );`
-                    this.log(createTableSQL)
-                    await queryRunner.query(createTableSQL)
-
-                    // Insert the records
-                    if (records.length > 0) {
-                        const columns = Object.keys(records[0]).join(', ')
-                        const values = records.map(record => {
-                            const vals = Object.values(record).map(val =>
-                                val === null || val === undefined ? 'NULL' :
-                                    typeof val === 'string' ? `'${val.replace(/'/g, "''")}'` :
-                                        val
-                            ).join(', ')
-                            return `(${vals})`
-                        }).join(',\n')
-
-                        const insertSQL = `INSERT INTO "${modelName.toLowerCase()}" (${columns}) VALUES ${values};`
-                        this.log('Executing insert:')
-                        this.log(insertSQL)
-                        await queryRunner.query(insertSQL)
-                    }
-
-                    this.log(`Successfully loaded ${records.length} records for ${modelName}`)
-                } catch (error) {
-                    this.error(`Failed to process model ${modelName}: ${error}`)
                 }
+
+                if (result.successCount === 0) {
+                    this.log(`⚠️  No valid records found for ${result.modelName}, skipping table creation.`)
+                    continue
+                }
+
+                this.log(`📊 Processing ${result.modelName}: ${result.successCount} valid records`)
+
+                // Convert model instances to database format
+                const dbRecords = loader.convertToDbFormat(result.records, false)
+
+                if (dbRecords.length === 0) {
+                    continue
+                }
+
+                // Infer database schema from the first record
+                const schema = loader.inferDbSchema(dbRecords[0])
+
+                // Drop and recreate the table
+                const tableName = result.modelName.toLowerCase()
+                await dataSource.query(`DROP TABLE IF EXISTS "${tableName}";`)
+
+                // Create table with inferred schema
+                const columns = Object.entries(schema)
+                    .map(([col, type]) => `${col} ${type}`)
+                    .join(',\n    ')
+
+                const createTableSQL = `CREATE TABLE "${tableName}" (\n    ${columns}\n);`
+                this.log('Creating table with SQL:')
+                this.log(createTableSQL)
+                await dataSource.query(createTableSQL)
+
+                // Insert the records
+                if (dbRecords.length > 0) {
+                    const columns = Object.keys(dbRecords[0]).join(', ')
+                    const values = dbRecords.map(record => {
+                        const vals = Object.values(record).map(val =>
+                            val === null || val === undefined ? 'NULL' :
+                                typeof val === 'string' ? `'${val.replace(/'/g, "''")}'` :
+                                    val
+                        ).join(', ')
+                        return `(${vals})`
+                    }).join(',\n    ')
+
+                    const insertSQL = `INSERT INTO "${tableName}" (${columns}) VALUES\n    ${values};`
+                    this.log(`Inserting ${dbRecords.length} records...`)
+                    await dataSource.query(insertSQL)
+                }
+
+                // Immediately verify the data was saved
+                const count = await dataSource.query(`SELECT COUNT(*) as count FROM "${tableName}";`)
+                this.log(`✅ Successfully loaded ${result.successCount} records for ${result.modelName}`)
+                this.log(`✅ Verified: Table "${tableName}" contains ${count[0].count} records`)
             }
 
-            // If everything went well, commit the transaction
-            await queryRunner.commitTransaction()
-            this.log(`\nSuccessfully loaded dataset '${dataset}' into datasource '${datasource}'`)
+            // Print summary
+            const totalSuccess = loadResults.reduce((sum, r) => sum + r.successCount, 0)
+            const totalErrors = loadResults.reduce((sum, r) => sum + r.errorCount, 0)
+
+            this.log(`
+🎉 Successfully loaded dataset '${dataset}' into datasource '${datasource}'`)
+            this.log(`📈 Summary: ${totalSuccess} records loaded, ${totalErrors} errors`)
 
         } catch (error) {
-            // If we had any error, roll back the entire transaction
-            this.log('Rolling back transaction due to error')
-            await queryRunner.rollbackTransaction()
-            throw error
+            this.error(`Failed to load dataset: ${(error as Error).message}`)
         } finally {
-            // Release the query runner and close the connection
-            await queryRunner.release()
-
             // Clean up by closing the datasource connection
             if (dataSource.isInitialized) {
+                // Add delay to ensure all operations complete
+                this.log('⏳ Finalizing database operations...')
+                await new Promise(resolve => setTimeout(resolve, 2000))
+
                 await dataSource.destroy()
+                this.log('🔌 Database connection closed')
             }
         }
     }
+
+    /**
+     * Create TypeORM column definitions from inferred schema
+     */
+    private createColumnsFromSchema(schema: Record<string, string>): Record<string, any> {
+        const columns: Record<string, any> = {}
+
+        for (const [columnName, sqlType] of Object.entries(schema)) {
+            let typeormType: string
+            let isPrimary = false
+
+            switch (sqlType) {
+                case 'INTEGER':
+                    typeormType = 'int'
+                    break
+                case 'REAL':
+                    typeormType = 'float'
+                    break
+                case 'BOOLEAN':
+                    typeormType = 'boolean'
+                    break
+                default:
+                    typeormType = 'varchar'
+            }
+
+            // Assume 'id' column is primary key
+            if (columnName === 'id') {
+                isPrimary = true
+            }
+
+            columns[columnName] = {
+                type: typeormType,
+                primary: isPrimary,
+                nullable: !isPrimary
+            }
+        }
+
+        return columns
+    }
+
 }
