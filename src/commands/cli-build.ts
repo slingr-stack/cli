@@ -1,6 +1,5 @@
 import { Command } from '@oclif/core'
 import { execSync } from 'child_process'
-import { fileURLToPath } from 'url'
 import { dirname, join } from 'path'
 
 export default class CliBuild extends Command {
@@ -15,8 +14,6 @@ export default class CliBuild extends Command {
     static strict = false
 
     public async run(): Promise<void> {
-        const __filename = fileURLToPath(import.meta.url)
-        const __dirname = dirname(__filename)
         const cliRootPath = join(__dirname, '..', '..')
 
         try {
