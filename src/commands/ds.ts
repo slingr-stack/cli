@@ -194,6 +194,9 @@ export default class Ds extends Command {
             entities
         }
 
+        // Validate Docker is running and PostgreSQL container is available
+        await this.validateDockerInfrastructure(datasource)
+
         // Initialize the datasource with its configuration
         try {
             this.log(`Attempting to connect to database: ${JSON.stringify(dsConfig.getOptions(), null, 2)}`)
@@ -385,6 +388,43 @@ export default class Ds extends Command {
         }
 
         return columns
+    }
+
+    /**
+     * Validate that Docker is running and PostgreSQL container is available
+     */
+    private async validateDockerInfrastructure(datasource: string): Promise<void> {
+        // Check if Docker is running
+        try {
+            execSync('docker info', { stdio: 'pipe' })
+        } catch (error) {
+            this.error(`Docker is not running. Please start Docker Desktop before running dataset commands.\n\nThe dataset command requires Docker to run the PostgreSQL infrastructure.`)
+        }
+
+        // Check if docker-compose.yml exists
+        const dockerComposePath = path.join(process.cwd(), 'docker-compose.yml')
+        if (!await fs.pathExists(dockerComposePath)) {
+            this.error(`Docker infrastructure not found. Missing docker-compose.yml file.\n\nTo fix this, run one of the following commands:\n  - slingr infra:update --all (to generate infrastructure files)\n  - slingr run (to automatically generate and start infrastructure)`)
+        }
+
+        // Check if PostgreSQL container is running
+        const serviceName = `${datasource}-db` // Docker service name format
+        try {
+            const result = execSync(`docker-compose ps -q ${serviceName}`, { stdio: 'pipe', encoding: 'utf8' })
+            if (!result.trim()) {
+                this.error(`PostgreSQL container '${serviceName}' is not running.\n\nTo fix this, run one of the following commands:\n  - slingr run (to start the full application with infrastructure)\n  - docker-compose up -d ${serviceName} (to start just the PostgreSQL service)`)
+            }
+
+            // Verify the container is actually running (not just exists)
+            const statusResult = execSync(`docker-compose ps ${serviceName}`, { stdio: 'pipe', encoding: 'utf8' })
+            if (!statusResult.includes('Up')) {
+                this.error(`PostgreSQL container '${serviceName}' exists but is not running.\n\nTo fix this, run one of the following commands:\n  - slingr run (to start the full application with infrastructure)\n  - docker-compose up -d ${serviceName} (to start just the PostgreSQL service)`)
+            }
+
+            this.log(`✅ Docker infrastructure validated: PostgreSQL container '${serviceName}' is running`)
+        } catch (error) {
+            this.error(`Could not verify PostgreSQL container status.\n\nTo fix this, run one of the following commands:\n  - slingr run (to start the full application with infrastructure)\n  - docker-compose up -d (to start all infrastructure services)`)
+        }
     }
 
 }

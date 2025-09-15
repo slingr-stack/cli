@@ -123,6 +123,12 @@ export async function createProjectStructure(appName: string, answers: AppAnswer
         path.join(targetDir, 'src', 'data', 'SampleModel.test.ts')
     )
 
+    // Copy App model files
+    await fse.copy(
+        path.join(templatesDir, 'src', 'App.ts'),
+        path.join(targetDir, 'src', 'data', 'App.ts')
+    )
+
     // Copy templated .github/copilot-instructions.md
     await copyTemplateFile(
         path.join(templatesDir, '.github', 'copilot-instructions.md.template'),
@@ -171,10 +177,15 @@ export async function createProjectStructure(appName: string, answers: AppAnswer
         // Create the dataset directory
         await fse.ensureDir(datasetTargetPath)
 
-        // Copy the JSONL template without the .template extension
+        // Copy the JSONL templates without the .template extension
         await copyTemplateFile(
             path.join(datasetSourcePath, 'Person.jsonl.template'),
             path.join(datasetTargetPath, 'Person.jsonl')
+        )
+
+        await copyTemplateFile(
+            path.join(datasetSourcePath, 'App.jsonl.template'),
+            path.join(datasetTargetPath, 'App.jsonl')
         )
     }
 }

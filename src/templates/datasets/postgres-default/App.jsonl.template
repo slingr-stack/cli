@@ -1,0 +1,5 @@
+{"name": "SlingrApp", "version": "01.00.01", "description": "A comprehensive application framework for building modern web applications", "author": "slingr-team"}
+{"name": "TestApp.Beta", "version": "00.05.12", "description": "A testing application used for quality assurance and validation purposes", "author": "qa.engineer"}
+{"name": "ProductionApp", "version": "02.15.03", "description": "The main production application serving thousands of users daily", "author": "dev-lead"}
+{"name": "Analytics.Dashboard", "version": "01.08.07", "description": "A powerful analytics dashboard for monitoring application metrics and performance", "author": "data.analyst"}
+{"name": "AdminPanel", "version": "03.02.11", "description": "Administrative panel for managing users, permissions, and system configurations", "author": "admin-team"}
