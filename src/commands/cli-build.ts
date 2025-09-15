@@ -22,13 +22,13 @@ export default class CliBuild extends Command {
                 cwd: cliRootPath,
                 stdio: 'inherit'
             })
-            
+
             this.log('Updating OCLIF manifest and documentation...')
             execSync('npm run prepack', {
                 cwd: cliRootPath,
                 stdio: 'inherit'
             })
-            
+
             this.log('Slingr CLI rebuild completed successfully!')
         } catch (error) {
             this.error('Failed to rebuild Slingr CLI')

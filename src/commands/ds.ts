@@ -98,6 +98,63 @@ export default class Ds extends Command {
         execSync('npm run build', { stdio: 'inherit' })
     }
 
+    private async ensureDatabaseDependencies(datasource: string): Promise<void> {
+        // Get the datasource type by reading the datasource file
+        const dsPath = path.join(process.cwd(), 'src', 'dataSources', `${datasource}.ts`)
+        const content = await fs.readFile(dsPath, 'utf-8')
+
+        // Extract database type from the configuration
+        const typeMatch = content.match(/type:\s*['"]([^'"]+)['"]/)
+        if (!typeMatch) {
+            this.log('Could not determine database type from datasource configuration')
+            return
+        }
+
+        let dbType = typeMatch[1].toLowerCase()
+        if (dbType === 'postgresql') dbType = 'postgres'
+
+        // Check package.json for required dependencies
+        const packageJsonPath = path.join(process.cwd(), 'package.json')
+        const packageJson = await fs.readJSON(packageJsonPath)
+
+        const dependencies = {
+            ...packageJson.dependencies,
+            ...packageJson.devDependencies
+        }
+
+        let packageToInstall: string | null = null
+
+        // Determine which package is needed based on database type
+        switch (dbType) {
+            case 'mysql':
+                if (!dependencies['mysql2'] && !dependencies['mysql']) {
+                    packageToInstall = 'mysql2'
+                }
+                break
+            case 'postgres':
+                if (!dependencies['pg']) {
+                    packageToInstall = 'pg'
+                }
+                break
+        }
+
+        // Install the required package if missing
+        if (packageToInstall) {
+            this.log(`Installing required database driver: ${packageToInstall}`)
+            try {
+                execSync(`npm install ${packageToInstall}`, {
+                    stdio: 'inherit',
+                    cwd: process.cwd()
+                })
+                this.log(`Successfully installed ${packageToInstall}`)
+            } catch (error) {
+                this.error(`Failed to install ${packageToInstall}: ${(error as Error).message}`)
+            }
+        } else {
+            this.log(`Database driver for ${dbType} is already installed`)
+        }
+    }
+
     private async prepareEnvironment(): Promise<void> {
         // Check if we have package.json with slingr-framework dependency
         const packageJsonPath = path.join(process.cwd(), 'package.json')
@@ -197,6 +254,9 @@ export default class Ds extends Command {
         // Validate Docker is running and PostgreSQL container is available
         await this.validateDockerInfrastructure(datasource)
 
+        // Ensure the required database dependencies are installed
+        await this.ensureDatabaseDependencies(datasource)
+
         // Initialize the datasource with its configuration
         try {
             this.log(`Attempting to connect to database: ${JSON.stringify(dsConfig.getOptions(), null, 2)}`)
@@ -293,37 +353,93 @@ export default class Ds extends Command {
 
                 // Drop and recreate the table
                 const tableName = result.modelName.toLowerCase()
-                await dataSource.query(`DROP TABLE IF EXISTS "${tableName}";`)
 
-                // Create table with inferred schema
-                const columns = Object.entries(schema)
-                    .map(([col, type]) => `${col} ${type}`)
-                    .join(',\n    ')
+                // Use appropriate SQL syntax based on database type
+                const dsOptions = dsConfig.getOptions() as any // Cast to any to access type property
+                const dbType = dsOptions.type || 'postgres'
 
-                const createTableSQL = `CREATE TABLE "${tableName}" (\n    ${columns}\n);`
+                let dropTableSQL: string
+                let createTableSQL: string
+                let insertSQL: string | undefined
+
+                if (dbType === 'mysql') {
+                    // MySQL uses backticks for identifiers
+                    dropTableSQL = `DROP TABLE IF EXISTS \`${tableName}\`;`
+
+                    // Create table with inferred schema for MySQL
+                    const columns = Object.entries(schema)
+                        .map(([col, type]) => {
+                            // Convert SQL types to MySQL types
+                            let mysqlType = type
+                            if (type === 'INTEGER') mysqlType = 'INT'
+                            if (type === 'REAL') mysqlType = 'FLOAT'
+                            if (type === 'TEXT') mysqlType = 'TEXT'
+                            if (type === 'BOOLEAN') mysqlType = 'BOOLEAN'
+                            return `\`${col}\` ${mysqlType}`
+                        })
+                        .join(',\n    ')
+
+                    createTableSQL = `CREATE TABLE \`${tableName}\` (\n    ${columns}\n);`
+
+                    // Insert SQL for MySQL
+                    if (dbRecords.length > 0) {
+                        const columns = Object.keys(dbRecords[0]).map(col => `\`${col}\``).join(', ')
+                        const values = dbRecords.map(record => {
+                            const vals = Object.values(record).map(val =>
+                                val === null || val === undefined ? 'NULL' :
+                                    typeof val === 'string' ? `'${val.replace(/'/g, "''")}'` :
+                                        val
+                            ).join(', ')
+                            return `(${vals})`
+                        }).join(',\n    ')
+
+                        insertSQL = `INSERT INTO \`${tableName}\` (${columns}) VALUES\n    ${values};`
+                    }
+                } else {
+                    // PostgreSQL and other databases use double quotes
+                    dropTableSQL = `DROP TABLE IF EXISTS "${tableName}";`
+
+                    // Create table with inferred schema for PostgreSQL
+                    const columns = Object.entries(schema)
+                        .map(([col, type]) => `${col} ${type}`)
+                        .join(',\n    ')
+
+                    createTableSQL = `CREATE TABLE "${tableName}" (\n    ${columns}\n);`
+
+                    // Insert SQL for PostgreSQL
+                    if (dbRecords.length > 0) {
+                        const columns = Object.keys(dbRecords[0]).join(', ')
+                        const values = dbRecords.map(record => {
+                            const vals = Object.values(record).map(val =>
+                                val === null || val === undefined ? 'NULL' :
+                                    typeof val === 'string' ? `'${val.replace(/'/g, "''")}'` :
+                                        val
+                            ).join(', ')
+                            return `(${vals})`
+                        }).join(',\n    ')
+
+                        insertSQL = `INSERT INTO "${tableName}" (${columns}) VALUES\n    ${values};`
+                    }
+                }
+
+                // Execute the SQL commands
+                await dataSource.query(dropTableSQL)
+
                 this.log('Creating table with SQL:')
                 this.log(createTableSQL)
                 await dataSource.query(createTableSQL)
 
                 // Insert the records
-                if (dbRecords.length > 0) {
-                    const columns = Object.keys(dbRecords[0]).join(', ')
-                    const values = dbRecords.map(record => {
-                        const vals = Object.values(record).map(val =>
-                            val === null || val === undefined ? 'NULL' :
-                                typeof val === 'string' ? `'${val.replace(/'/g, "''")}'` :
-                                    val
-                        ).join(', ')
-                        return `(${vals})`
-                    }).join(',\n    ')
-
-                    const insertSQL = `INSERT INTO "${tableName}" (${columns}) VALUES\n    ${values};`
+                if (insertSQL) {
                     this.log(`Inserting ${dbRecords.length} records...`)
                     await dataSource.query(insertSQL)
                 }
 
                 // Immediately verify the data was saved
-                const count = await dataSource.query(`SELECT COUNT(*) as count FROM "${tableName}";`)
+                const countSQL = dbType === 'mysql'
+                    ? `SELECT COUNT(*) as count FROM \`${tableName}\`;`
+                    : `SELECT COUNT(*) as count FROM "${tableName}";`
+                const count = await dataSource.query(countSQL)
                 this.log(`✅ Successfully loaded ${result.successCount} records for ${result.modelName}`)
                 this.log(`✅ Verified: Table "${tableName}" contains ${count[0].count} records`)
             }
