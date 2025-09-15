@@ -212,17 +212,17 @@ export default class Ds extends Command {
                 if (err.code === 'ECONNREFUSED') return true
                 if (err.message?.includes('ECONNREFUSED')) return true
                 if (err.message?.includes('connection refused')) return true
-                
+
                 // Check nested errors in AggregateError
                 if (err.errors && Array.isArray(err.errors)) {
                     return err.errors.some((nestedErr: any) => isConnectionRefused(nestedErr))
                 }
-                
+
                 // Check cause property
                 if (err.cause) {
                     return isConnectionRefused(err.cause)
                 }
-                
+
                 return false
             }
 

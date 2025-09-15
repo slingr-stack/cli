@@ -85,7 +85,7 @@ export async function createProjectStructure(appName: string, answers: AppAnswer
         replacements
     )
 
-    // Copiar el template de datasource correspondiente según el tipo de base de datos
+    // Copy the corresponding datasource template based on database type
     if (answers.hasBackend) {
         let dbType = answers.database.toLowerCase()
         let templateFile = ''
@@ -100,7 +100,7 @@ export async function createProjectStructure(appName: string, answers: AppAnswer
                 templateFile = path.join(templatesDir, 'dataSources', 'mysql.ts.template')
                 targetFile = path.join(targetDir, 'src', 'dataSources', 'mysql.ts')
                 break
-            // Agregar más casos si hay más templates
+            // Add more cases if there are more templates
             default:
                 templateFile = path.join(templatesDir, 'dataSources', 'postgres.ts.template')
                 targetFile = path.join(targetDir, 'src', 'dataSources', 'postgres.ts')
