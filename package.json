@@ -17,7 +17,7 @@
     "fs-extra": "^11.3.1",
     "inquirer": "^8.2.7",
     "js-yaml": "^4.1.0",
-    "slingr-framework": "github:slingr-stack/framework#feature/modelFieldConfigDS"
+    "slingr-framework": "github:slingr-stack/framework#fix/projectSettings"
   },
   "devDependencies": {
     "@eslint/compat": "^1",
