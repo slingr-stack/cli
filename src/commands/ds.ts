@@ -3,7 +3,6 @@ import fs from 'fs-extra'
 import path from 'node:path'
 import { execSync } from 'child_process'
 import { TypeORMSqlDataSource } from 'slingr-framework'
-import { DataSource, EntitySchema } from 'typeorm'
 import { JsonlDatasetLoader, discoverModels } from '../utils/jsonl-loader.js'
 
 export default class Ds extends Command {
@@ -46,12 +45,6 @@ export default class Ds extends Command {
         const dsPath = path.join(process.cwd(), 'src', 'dataSources', `${datasource}.ts`)
         if (!await fs.pathExists(dsPath)) {
             this.error(`Datasource ${datasource} not found. Expected file at: ${dsPath}`)
-        }
-
-        // Check if the dataset directory exists
-        const datasetPath = path.join(process.cwd(), 'datasets', `${datasource}-${dataset}`)
-        if (!await fs.pathExists(datasetPath)) {
-            this.error(`Dataset not found at: ${datasetPath}`)
         }
 
         try {
@@ -186,6 +179,12 @@ export default class Ds extends Command {
     private async loadDataset(datasource: string, dataset: string): Promise<void> {
         this.log(`Loading dataset '${dataset}' into datasource '${datasource}'...`)
 
+        // Check if the dataset directory exists using the convention: dataSourceName-datasetName
+        const datasetPath = path.join(process.cwd(), 'datasets', `${datasource}-${dataset}`)
+        if (!await fs.pathExists(datasetPath)) {
+            this.error(`Dataset not found at: ${datasetPath}`)
+        }
+
         // Initialize the JSONL loader
         const loader = new JsonlDatasetLoader()
 
@@ -200,9 +199,6 @@ export default class Ds extends Command {
         }
 
         this.log(`Discovered ${Object.keys(modelMap).length} models:`, Object.keys(modelMap))
-
-        // Dataset directory path
-        const datasetPath = path.join(process.cwd(), 'datasets', `${datasource}-${dataset}`)
 
         // Load dataset using the new JSONL loader
         const loadResults = await loader.loadDataset({
@@ -225,32 +221,6 @@ export default class Ds extends Command {
             this.error(`Could not find datasource instance ${datasource}DataSource in ${dsModulePath}`)
         }
 
-        // Create EntitySchemas for each model we found data for
-        const entities: EntitySchema[] = []
-        for (const result of loadResults) {
-            if (result.records.length > 0) {
-                const ModelClass = modelMap[result.modelName]
-                const sampleRecord = loader.convertToDbFormat([result.records[0]], false)[0]
-                const schema = loader.inferDbSchema(sampleRecord)
-
-                // Create EntitySchema with inferred columns
-                const entitySchema = new EntitySchema({
-                    name: result.modelName,
-                    tableName: result.modelName.toLowerCase(),
-                    target: ModelClass,
-                    columns: this.createColumnsFromSchema(schema)
-                })
-
-                entities.push(entitySchema)
-            }
-        }
-
-        // Get the datasource options and add the entities
-        const options = {
-            ...dsConfig.getOptions(),
-            entities
-        }
-
         // Validate Docker is running and PostgreSQL container is available
         await this.validateDockerInfrastructure(datasource)
 
@@ -260,7 +230,7 @@ export default class Ds extends Command {
         // Initialize the datasource with its configuration
         try {
             this.log(`Attempting to connect to database: ${JSON.stringify(dsConfig.getOptions(), null, 2)}`)
-            await dsConfig.initialize(options)
+            await dsConfig.initialize(dsConfig.getOptions())
         } catch (error) {
             const errorMessage = (error as Error).message
             this.log(`Connection failed with error: ${errorMessage}`)
@@ -324,125 +294,10 @@ export default class Ds extends Command {
 
         this.log('DataSource initialized successfully')
 
-        // Process each load result using auto-commit (no explicit transactions)
+        // Process each load result using TypeORM repositories (database-agnostic)
         try {
-            for (const result of loadResults) {
-                if (result.errorCount > 0) {
-                    this.log(`⚠️  Model ${result.modelName} has ${result.errorCount} validation errors:`)
-                    for (const error of result.errors) {
-                        this.log(`   Record ${error.recordIndex + 1}: ${JSON.stringify(error.validationErrors)}`)
-                    }
-                }
-
-                if (result.successCount === 0) {
-                    this.log(`⚠️  No valid records found for ${result.modelName}, skipping table creation.`)
-                    continue
-                }
-
-                this.log(`📊 Processing ${result.modelName}: ${result.successCount} valid records`)
-
-                // Convert model instances to database format
-                const dbRecords = loader.convertToDbFormat(result.records, false)
-
-                if (dbRecords.length === 0) {
-                    continue
-                }
-
-                // Infer database schema from the first record
-                const schema = loader.inferDbSchema(dbRecords[0])
-
-                // Drop and recreate the table
-                const tableName = result.modelName.toLowerCase()
-
-                // Use appropriate SQL syntax based on database type
-                const dsOptions = dsConfig.getOptions() as any // Cast to any to access type property
-                const dbType = dsOptions.type || 'postgres'
-
-                let dropTableSQL: string
-                let createTableSQL: string
-                let insertSQL: string | undefined
-
-                if (dbType === 'mysql') {
-                    // MySQL uses backticks for identifiers
-                    dropTableSQL = `DROP TABLE IF EXISTS \`${tableName}\`;`
-
-                    // Create table with inferred schema for MySQL
-                    const columns = Object.entries(schema)
-                        .map(([col, type]) => {
-                            // Convert SQL types to MySQL types
-                            let mysqlType = type
-                            if (type === 'INTEGER') mysqlType = 'INT'
-                            if (type === 'REAL') mysqlType = 'FLOAT'
-                            if (type === 'TEXT') mysqlType = 'TEXT'
-                            if (type === 'BOOLEAN') mysqlType = 'BOOLEAN'
-                            return `\`${col}\` ${mysqlType}`
-                        })
-                        .join(',\n    ')
-
-                    createTableSQL = `CREATE TABLE \`${tableName}\` (\n    ${columns}\n);`
-
-                    // Insert SQL for MySQL
-                    if (dbRecords.length > 0) {
-                        const columns = Object.keys(dbRecords[0]).map(col => `\`${col}\``).join(', ')
-                        const values = dbRecords.map(record => {
-                            const vals = Object.values(record).map(val =>
-                                val === null || val === undefined ? 'NULL' :
-                                    typeof val === 'string' ? `'${val.replace(/'/g, "''")}'` :
-                                        val
-                            ).join(', ')
-                            return `(${vals})`
-                        }).join(',\n    ')
-
-                        insertSQL = `INSERT INTO \`${tableName}\` (${columns}) VALUES\n    ${values};`
-                    }
-                } else {
-                    // PostgreSQL and other databases use double quotes
-                    dropTableSQL = `DROP TABLE IF EXISTS "${tableName}";`
-
-                    // Create table with inferred schema for PostgreSQL
-                    const columns = Object.entries(schema)
-                        .map(([col, type]) => `${col} ${type}`)
-                        .join(',\n    ')
-
-                    createTableSQL = `CREATE TABLE "${tableName}" (\n    ${columns}\n);`
-
-                    // Insert SQL for PostgreSQL
-                    if (dbRecords.length > 0) {
-                        const columns = Object.keys(dbRecords[0]).join(', ')
-                        const values = dbRecords.map(record => {
-                            const vals = Object.values(record).map(val =>
-                                val === null || val === undefined ? 'NULL' :
-                                    typeof val === 'string' ? `'${val.replace(/'/g, "''")}'` :
-                                        val
-                            ).join(', ')
-                            return `(${vals})`
-                        }).join(',\n    ')
-
-                        insertSQL = `INSERT INTO "${tableName}" (${columns}) VALUES\n    ${values};`
-                    }
-                }
-
-                // Execute the SQL commands
-                await dataSource.query(dropTableSQL)
-
-                this.log('Creating table with SQL:')
-                this.log(createTableSQL)
-                await dataSource.query(createTableSQL)
-
-                // Insert the records
-                if (insertSQL) {
-                    this.log(`Inserting ${dbRecords.length} records...`)
-                    await dataSource.query(insertSQL)
-                }
-
-                // Immediately verify the data was saved
-                const countSQL = dbType === 'mysql'
-                    ? `SELECT COUNT(*) as count FROM \`${tableName}\`;`
-                    : `SELECT COUNT(*) as count FROM "${tableName}";`
-                const count = await dataSource.query(countSQL)
-                this.log(`✅ Successfully loaded ${result.successCount} records for ${result.modelName}`)
-                this.log(`✅ Verified: Table "${tableName}" contains ${count[0].count} records`)
-            }
+            // Use the new generic loader method
+            await loader.loadDatasetToDatabase(loadResults, dsConfig, true)
 
             // Print summary
             const totalSuccess = loadResults.reduce((sum, r) => sum + r.successCount, 0)
@@ -465,45 +320,6 @@ export default class Ds extends Command {
                 this.log('🔌 Database connection closed')
             }
         }
-    }
-
-    /**
-     * Create TypeORM column definitions from inferred schema
-     */
-    private createColumnsFromSchema(schema: Record<string, string>): Record<string, any> {
-        const columns: Record<string, any> = {}
-
-        for (const [columnName, sqlType] of Object.entries(schema)) {
-            let typeormType: string
-            let isPrimary = false
-
-            switch (sqlType) {
-                case 'INTEGER':
-                    typeormType = 'int'
-                    break
-                case 'REAL':
-                    typeormType = 'float'
-                    break
-                case 'BOOLEAN':
-                    typeormType = 'boolean'
-                    break
-                default:
-                    typeormType = 'varchar'
-            }
-
-            // Assume 'id' column is primary key
-            if (columnName === 'id') {
-                isPrimary = true
-            }
-
-            columns[columnName] = {
-                type: typeormType,
-                primary: isPrimary,
-                nullable: !isPrimary
-            }
-        }
-
-        return columns
     }
 
     /**

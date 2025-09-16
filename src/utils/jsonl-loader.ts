@@ -1,6 +1,7 @@
 import fs from 'fs-extra'
 import path from 'node:path'
-import { BaseModel } from 'slingr-framework'
+import { BaseModel, TypeORMSqlDataSource } from 'slingr-framework'
+import { DataSource } from 'typeorm'
 
 /**
  * Interface for model constructors that extend BaseModel
@@ -248,22 +249,190 @@ export class JsonlDatasetLoader {
     }
 
     /**
-     * Get the database column schema based on a sample record
-     * This can be used to create database tables dynamically
+     * Load dataset into database using TypeORM with dynamic table creation
+     * This method creates tables dynamically and uses TypeORM for data insertion
      */
-    inferDbSchema(sampleRecord: any): Record<string, string> {
-        const schema: Record<string, string> = {}
+    async loadDatasetToDatabase(
+        results: DatasetLoadResult[],
+        dataSource: TypeORMSqlDataSource,
+        verbose: boolean = false
+    ): Promise<void> {
+        const typeormDataSource = dataSource.getTypeORMDataSource()
 
-        for (const [key, value] of Object.entries(sampleRecord)) {
-            let sqlType = 'TEXT'
+        if (!typeormDataSource || !typeormDataSource.isInitialized) {
+            throw new Error('TypeORM DataSource is not initialized')
+        }
 
-            if (typeof value === 'number') {
-                sqlType = Number.isInteger(value) ? 'INTEGER' : 'REAL'
-            } else if (typeof value === 'boolean') {
-                sqlType = 'BOOLEAN'
+        for (const result of results) {
+            if (result.errorCount > 0 && verbose) {
+                console.log(`⚠️  Model ${result.modelName} has ${result.errorCount} validation errors:`)
+                for (const error of result.errors) {
+                    console.log(`   Record ${error.recordIndex + 1}: ${JSON.stringify(error.validationErrors)}`)
+                }
             }
 
-            schema[key] = sqlType
+            if (result.successCount === 0) {
+                if (verbose) {
+                    console.log(`⚠️  No valid records found for ${result.modelName}, skipping.`)
+                }
+                continue
+            }
+
+            if (verbose) {
+                console.log(`📊 Processing ${result.modelName}: ${result.successCount} valid records`)
+            }
+
+            try {
+                // Convert model instances to database format
+                const dbRecords = this.convertToDbFormat(result.records, verbose)
+
+                if (dbRecords.length === 0) {
+                    continue
+                }
+
+                // Infer database schema from ALL records to capture all fields
+                const schema = this.inferDbSchemaFromAllRecords(dbRecords)
+                const tableName = result.modelName.toLowerCase()
+
+                // Create table dynamically using TypeORM query runner
+                await this.createTableDynamically(typeormDataSource, tableName, schema, verbose)
+
+                // Insert data using TypeORM query runner (database-agnostic)
+                await this.insertDataDynamically(typeormDataSource, tableName, dbRecords, verbose)
+
+                if (verbose) {
+                    console.log(`✅ Successfully loaded ${result.successCount} records for ${result.modelName}`)
+
+                    // Verify the data was saved
+                    const count = await typeormDataSource.query(`SELECT COUNT(*) as count FROM ${tableName}`)
+                    console.log(`✅ Verified: Table "${tableName}" contains ${count[0].count} records`)
+                }
+
+            } catch (error) {
+                console.error(`❌ Failed to load ${result.modelName}:`, error)
+                throw error
+            }
+        }
+    }
+
+    /**
+     * Create table dynamically using TypeORM (database-agnostic)
+     */
+    private async createTableDynamically(
+        dataSource: DataSource,
+        tableName: string,
+        schema: Record<string, string>,
+        verbose: boolean = false
+    ): Promise<void> {
+        const queryRunner = dataSource.createQueryRunner()
+
+        try {
+            // Drop table if exists
+            await queryRunner.dropTable(tableName, true)
+
+            // Create new table with proper schema
+            const columns = Object.entries(schema).map(([columnName, sqlType]) => {
+                let typeormType: string
+                let isPrimary = columnName === 'id'
+
+                switch (sqlType) {
+                    case 'INTEGER':
+                        typeormType = isPrimary ? 'int' : 'int'
+                        break
+                    case 'REAL':
+                        typeormType = 'float'
+                        break
+                    case 'BOOLEAN':
+                        typeormType = 'boolean'
+                        break
+                    default:
+                        typeormType = 'varchar'
+                }
+
+                return {
+                    name: columnName,
+                    type: typeormType as any,
+                    isPrimary,
+                    isNullable: !isPrimary,
+                    ...(typeormType === 'varchar' && { length: '500' })
+                }
+            })
+
+            const table = new (await import('typeorm')).Table({
+                name: tableName,
+                columns
+            })
+
+            await queryRunner.createTable(table)
+
+            if (verbose) {
+                console.log(`✅ Created table "${tableName}" with ${columns.length} columns`)
+            }
+
+        } finally {
+            await queryRunner.release()
+        }
+    }
+
+    /**
+     * Insert data dynamically using TypeORM (database-agnostic)
+     */
+    private async insertDataDynamically(
+        dataSource: DataSource,
+        tableName: string,
+        records: any[],
+        verbose: boolean = false
+    ): Promise<void> {
+        if (records.length === 0) return
+
+        const queryRunner = dataSource.createQueryRunner()
+
+        try {
+            // Use TypeORM's query builder for database-agnostic insertion
+            const columns = Object.keys(records[0])
+
+            for (const record of records) {
+                await queryRunner.manager
+                    .createQueryBuilder()
+                    .insert()
+                    .into(tableName)
+                    .values(record)
+                    .execute()
+            }
+
+            if (verbose) {
+                console.log(`✅ Inserted ${records.length} records into "${tableName}"`)
+            }
+
+        } finally {
+            await queryRunner.release()
+        }
+    }
+
+    /**
+     * Get the database column schema based on ALL records to capture all possible fields
+     */
+    inferDbSchemaFromAllRecords(records: any[]): Record<string, string> {
+        const schema: Record<string, string> = {}
+
+        // Examine all records to find all possible fields
+        for (const record of records) {
+            for (const [key, value] of Object.entries(record)) {
+                if (schema[key]) {
+                    // Field already exists, keep the existing type or upgrade if needed
+                    continue
+                }
+
+                let sqlType = 'TEXT'
+
+                if (typeof value === 'number') {
+                    sqlType = Number.isInteger(value) ? 'INTEGER' : 'REAL'
+                } else if (typeof value === 'boolean') {
+                    sqlType = 'BOOLEAN'
+                }
+
+                schema[key] = sqlType
+            }
         }
 
         return schema
