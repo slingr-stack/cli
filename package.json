@@ -18,7 +18,7 @@
     "glob": "^11.0.3",
     "inquirer": "^8.2.7",
     "js-yaml": "^4.1.0",
-    "slingr-framework": "github:slingr-stack/framework#fix/projectSettings"
+    "slingr-framework": "github:slingr-stack/framework"
   },
   "devDependencies": {
     "@eslint/compat": "^1",
