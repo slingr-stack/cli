@@ -2,6 +2,8 @@ import { Command, Flags } from '@oclif/core'
 import path from 'node:path'
 import fs from 'fs-extra'
 import { execSync } from 'child_process'
+import { checkPortsUsage, findAvailablePort } from '../utils/port-checker.js'
+import { extractDataSourcePorts } from '../utils/datasource-parser.js'
 
 export default class Run extends Command {
     static override description = 'Run a Slingr application locally'
@@ -23,6 +25,9 @@ export default class Run extends Command {
     private async checkInfrastructure(): Promise<void> {
         const dataSources = await this.loadDataSources()
 
+        // Check port availability before starting services
+        await this.checkPortAvailability()
+
         // Run infra update command to ensure latest infrastructure configuration
         await this.config.runCommand('infra:update', ['--all'])
 
@@ -42,7 +47,11 @@ export default class Run extends Command {
 
         // Start infrastructure services
         this.log('Starting infrastructure services...')
-        execSync('docker compose up -d', { stdio: 'inherit' })
+        try {
+            execSync('docker compose up -d', { stdio: 'inherit' })
+        } catch (error) {
+            this.error('Failed to start Docker services. This might be due to port conflicts or other Docker issues.')
+        }
 
         // Wait for services to be healthy
         this.log('Waiting for services to be ready...')
@@ -56,7 +65,7 @@ export default class Run extends Command {
             while (attempts < maxAttempts) {
                 try {
                     const containerInfo = execSync(`docker ps -f name=${serviceName} --format '{{.Status}}'`, { encoding: 'utf-8' })
-                    
+
                     if (containerInfo.includes('healthy')) {
                         this.log(`Service ${serviceName} is healthy`)
                         break
@@ -72,6 +81,68 @@ export default class Run extends Command {
                     this.error(`Service ${serviceName} is not healthy after ${maxAttempts} seconds`)
                 }
             }
+        }
+    }
+
+    private async checkPortAvailability(): Promise<void> {
+        this.log('Checking port availability for datasources...')
+
+        const dataSourcePorts = await extractDataSourcePorts()
+
+        if (dataSourcePorts.length === 0) {
+            return
+        }
+
+        const ports = dataSourcePorts.map(ds => ds.port)
+        const portUsage = await checkPortsUsage(ports)
+
+        const conflictingPorts = portUsage.filter(p => p.inUse && !p.isProjectDocker)
+        const dockerPorts = portUsage.filter(p => p.inUse && p.isProjectDocker)
+
+        // Show info about existing Docker containers
+        if (dockerPorts.length > 0) {
+            this.log('ℹ️  Found existing project containers:')
+            for (const dockerPort of dockerPorts) {
+                const dataSource = dataSourcePorts.find(ds => ds.port === dockerPort.port)
+                if (dataSource) {
+                    this.log(`   ✅ Port ${dockerPort.port} - ${dataSource.type} (${dockerPort.containerName})`)
+                }
+            }
+            this.log('')
+        }
+
+        if (conflictingPorts.length > 0) {
+            this.log('⚠️  Port conflicts detected!')
+            this.log('')
+
+            for (const conflictPort of conflictingPorts) {
+                const dataSource = dataSourcePorts.find(ds => ds.port === conflictPort.port)
+                if (dataSource) {
+                    this.log(`❌ Port ${conflictPort.port} is already in use (required by ${dataSource.fileName})`)
+                    this.log(`   Database type: ${dataSource.type}`)
+                    if (conflictPort.process) {
+                        this.log(`   Currently used by: ${conflictPort.process}`)
+                    }
+
+                    // Suggest alternative ports
+                    const alternativePort = await findAvailablePort(conflictPort.port + 1, 10)
+                    if (alternativePort) {
+                        this.log(`   💡 Suggested alternative: port ${alternativePort}`)
+                        this.log(`   To use this port, update ${dataSource.fileName} and change the port to ${alternativePort}`)
+                    }
+                    this.log('')
+                }
+            }
+
+            this.log('💡 Solutions:')
+            this.log('1. Stop the processes using these ports')
+            this.log('2. Update your datasource files to use different ports')
+            this.log('3. Use --skip-infra flag to run without infrastructure')
+            this.log('')
+
+            this.error(`Cannot start infrastructure due to port conflicts. Please resolve the port conflicts above.`)
+        } else {
+            this.log('✅ All required ports are available')
         }
     }
 
@@ -108,31 +179,51 @@ export default class Run extends Command {
     }
 
     private async buildFramework(): Promise<void> {
-        this.log('Building slingr-framework...')
         const currentDir = process.cwd()
         const nodeModulesPath = path.join(currentDir, 'node_modules', 'slingr-framework')
-        
+        const distPath = path.join(nodeModulesPath, 'dist')
+        const mainFile = path.join(distPath, 'index.js')
+
         this.log(`Looking for slingr-framework in: ${nodeModulesPath}`)
-        
+
         if (!await fs.pathExists(nodeModulesPath)) {
             this.error('slingr-framework not found in node_modules. Please run npm install first.')
         }
 
+        // Check if framework is already built
+        if (await fs.pathExists(mainFile)) {
+            this.log('✅ slingr-framework is already built')
+            return
+        }
+
+        this.log('📦 Building slingr-framework...')
+
         try {
             this.log('Changing to framework directory...')
             process.chdir(nodeModulesPath)
-            
-            this.log('Building framework...')
-            execSync('npm run build', { stdio: 'inherit' })
+
+            // Check if tsconfig.build.json exists, if not, try with regular tsconfig.json or default tsc
+            const tsconfigBuildPath = path.join(nodeModulesPath, 'tsconfig.build.json')
+            const tsconfigPath = path.join(nodeModulesPath, 'tsconfig.json')
+
+            if (await fs.pathExists(tsconfigBuildPath)) {
+                this.log('Building framework with tsconfig.build.json...')
+                execSync('npm run build', { stdio: 'inherit' })
+            } else if (await fs.pathExists(tsconfigPath)) {
+                this.log('Building framework with tsconfig.json...')
+                execSync('npx tsc', { stdio: 'inherit' })
+            } else {
+                this.log('Building framework with default TypeScript settings...')
+                execSync('npx tsc --outDir dist --declaration', { stdio: 'inherit' })
+            }
         } catch (error) {
-            this.error(`Failed to build framework: ${(error as Error).message}`)
+            this.warn(`Failed to build framework: ${(error as Error).message}`)
+            this.warn('Framework build failed, but continuing anyway. This might cause runtime issues.')
         } finally {
             this.log('Returning to project directory...')
             process.chdir(currentDir)
         }
-    }
-
-    public async run(): Promise<void> {
+    } public async run(): Promise<void> {
         const { flags } = await this.parse(Run)
 
         try {
