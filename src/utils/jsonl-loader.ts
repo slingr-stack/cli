@@ -1,7 +1,6 @@
 import fs from 'fs-extra'
 import path from 'node:path'
 import { BaseModel, TypeORMSqlDataSource } from 'slingr-framework'
-import { DataSource } from 'typeorm'
 
 /**
  * Interface for model constructors that extend BaseModel
@@ -295,10 +294,10 @@ export class JsonlDatasetLoader {
                 const tableName = result.modelName.toLowerCase()
 
                 // Create table dynamically using TypeORM query runner
-                await this.createTableDynamically(typeormDataSource, tableName, schema, verbose)
+                await this.createTableDynamically(dataSource, tableName, schema, verbose)
 
                 // Insert data using TypeORM query runner (database-agnostic)
-                await this.insertDataDynamically(typeormDataSource, tableName, dbRecords, verbose)
+                await this.insertDataDynamically(dataSource, tableName, dbRecords, verbose)
 
                 if (verbose) {
                     console.log(`✅ Successfully loaded ${result.successCount} records for ${result.modelName}`)
@@ -319,12 +318,13 @@ export class JsonlDatasetLoader {
      * Create table dynamically using TypeORM (database-agnostic)
      */
     private async createTableDynamically(
-        dataSource: DataSource,
+        dataSource: TypeORMSqlDataSource,
         tableName: string,
         schema: Record<string, string>,
         verbose: boolean = false
     ): Promise<void> {
-        const queryRunner = dataSource.createQueryRunner()
+        const typeormDataSource = dataSource.getTypeORMDataSource()
+        const queryRunner = typeormDataSource.createQueryRunner()
 
         try {
             // Drop table if exists
@@ -358,7 +358,7 @@ export class JsonlDatasetLoader {
                 }
             })
 
-            const table = new (await import('typeorm')).Table({
+            const table = new (require('typeorm')).Table({
                 name: tableName,
                 columns
             })
@@ -378,14 +378,15 @@ export class JsonlDatasetLoader {
      * Insert data dynamically using TypeORM (database-agnostic)
      */
     private async insertDataDynamically(
-        dataSource: DataSource,
+        dataSource: TypeORMSqlDataSource,
         tableName: string,
         records: any[],
         verbose: boolean = false
     ): Promise<void> {
         if (records.length === 0) return
 
-        const queryRunner = dataSource.createQueryRunner()
+        const typeormDataSource = dataSource.getTypeORMDataSource()
+        const queryRunner = typeormDataSource.createQueryRunner()
 
         try {
             // Use TypeORM's query builder for database-agnostic insertion

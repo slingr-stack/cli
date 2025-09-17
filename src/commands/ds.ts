@@ -230,7 +230,7 @@ export default class Ds extends Command {
         // Initialize the datasource with its configuration
         try {
             this.log(`Attempting to connect to database: ${JSON.stringify(dsConfig.getOptions(), null, 2)}`)
-            await dsConfig.initialize(dsConfig.getOptions())
+            await dsConfig.initialize()
         } catch (error) {
             const errorMessage = (error as Error).message
             this.log(`Connection failed with error: ${errorMessage}`)
