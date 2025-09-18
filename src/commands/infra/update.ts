@@ -3,6 +3,7 @@ import fs from 'fs-extra'
 import inquirer from 'inquirer'
 import * as yaml from 'js-yaml'
 import * as path from 'path'
+import { checkPortsUsage, findAvailablePort } from '../../utils/port-checker.js'
 
 interface DataSource {
     // Allowed DB types
@@ -199,6 +200,49 @@ export default class InfraUpdate extends Command {
         return compose
     }
 
+    private async checkPortsBeforeGeneration(dataSources: DataSource[]): Promise<void> {
+        const ports = dataSources.map(ds => ds.port || (ds.type === 'mysql' ? 3306 : 5432))
+        const portUsage = await checkPortsUsage(ports)
+
+        const conflictingPorts = portUsage.filter(p => p.inUse && !p.isProjectDocker)
+        const dockerPorts = portUsage.filter(p => p.inUse && p.isProjectDocker)
+
+        // Show info about existing Docker containers
+        if (dockerPorts.length > 0) {
+            this.log('ℹ️  Found existing project containers:')
+            for (const dockerPort of dockerPorts) {
+                const dataSource = dataSources.find(ds => (ds.port || (ds.type === 'mysql' ? 3306 : 5432)) === dockerPort.port)
+                if (dataSource) {
+                    this.log(`   ✅ Port ${dockerPort.port} - ${dataSource.name} (${dockerPort.containerName})`)
+                }
+            }
+            this.log('')
+        }
+
+        if (conflictingPorts.length > 0) {
+            this.warn('⚠️  Warning: Some ports are currently in use')
+
+            for (const conflictPort of conflictingPorts) {
+                const dataSource = dataSources.find(ds => (ds.port || (ds.type === 'mysql' ? 3306 : 5432)) === conflictPort.port)
+                if (dataSource) {
+                    this.warn(`⚠️  Port ${conflictPort.port} is in use (needed for ${dataSource.name} - ${dataSource.type})`)
+                    if (conflictPort.process) {
+                        this.warn(`   Currently used by: ${conflictPort.process}`)
+                    }
+
+                    // Suggest alternative ports
+                    const alternativePort = await findAvailablePort(conflictPort.port + 1, 10)
+                    if (alternativePort) {
+                        this.warn(`   💡 Consider using port ${alternativePort} instead`)
+                    }
+                }
+            }
+
+            this.warn('💡 Note: Docker containers may fail to start due to these port conflicts')
+            this.warn('Consider updating your datasource files to use different ports\n')
+        }
+    }
+
     async run(): Promise<void> {
         try {
             const { flags } = await this.parse(InfraUpdate)
@@ -247,6 +291,9 @@ export default class InfraUpdate extends Command {
 
             // Check if we're updating a single service
             const isSingleUpdate = selectedDataSources.length === 1 && !flags.all
+
+            // Check for port conflicts before generating docker-compose
+            await this.checkPortsBeforeGeneration(selectedDataSources)
 
             const dockerCompose = await this.generateDockerCompose(selectedDataSources, isSingleUpdate)
             const yamlContent = yaml.dump(dockerCompose)
