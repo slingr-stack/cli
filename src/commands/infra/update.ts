@@ -3,7 +3,7 @@ import fs from 'fs-extra'
 import inquirer from 'inquirer'
 import * as yaml from 'js-yaml'
 import * as path from 'path'
-import { findDatabasePort } from '../../utils/port-utils.js'
+import { checkPortsUsage, findAvailablePort } from '../../utils/port-checker.js'
 
 interface DataSource {
     // Allowed DB types
@@ -133,20 +133,12 @@ export default class InfraUpdate extends Command {
         }
 
         // Store port mappings to update datasource files later
-        const portMappings: Record<string, number> = {}
-
-        for (const ds of dataSources) {
-            // Find available port for this database type
-            const availablePort = await findDatabasePort(ds.type)
-            portMappings[ds.name] = availablePort
-
-            this.log(`Using port ${availablePort} for ${ds.name} (${ds.type})`)
-
+        dataSources.forEach(ds => {
             switch (ds.type) {
                 case 'postgres':
                     compose.services[`${ds.name}-db`] = {
                         image: 'postgres:15-alpine',
-                        ports: [`${availablePort}:5432`],
+                        ports: [`${ds.port || 5432}:5432`],
                         volumes: [`${ds.name}-data:/var/lib/postgresql/data`],
                         environment: {
                             POSTGRES_USER: ds.username || 'postgres',
@@ -177,7 +169,7 @@ export default class InfraUpdate extends Command {
 
                         compose.services[`${ds.name}-db`] = {
                             image: 'mysql:8.0',
-                            ports: [`${availablePort}:3306`],
+                            ports: [`${ds.port || 3306}:3306`],
                             volumes: [`${ds.name}-data:/var/lib/mysql`],
                             environment: env,
                             healthcheck: {
@@ -204,34 +196,52 @@ export default class InfraUpdate extends Command {
                     compose.volumes[`${ds.name}-data`] = null
                     break
             }
-        }
+        })
 
-        // Update datasource files with the new ports
-        await this.updateDataSourcePorts(portMappings)
 
         return compose
     }
 
-    /**
-     * Update datasource files with new port configurations
-     */
-    private async updateDataSourcePorts(portMappings: Record<string, number>): Promise<void> {
-        const datasourcesDir = path.join(process.cwd(), 'src', 'dataSources')
+    private async checkPortsBeforeGeneration(dataSources: DataSource[]): Promise<void> {
+        const ports = dataSources.map(ds => ds.port || (ds.type === 'mysql' ? 3306 : 5432))
+        const portUsage = await checkPortsUsage(ports)
 
-        for (const [dsName, port] of Object.entries(portMappings)) {
-            const dsFilePath = path.join(datasourcesDir, `${dsName}.ts`)
+        const conflictingPorts = portUsage.filter(p => p.inUse && !p.isProjectDocker)
+        const dockerPorts = portUsage.filter(p => p.inUse && p.isProjectDocker)
 
-            if (await fs.pathExists(dsFilePath)) {
-                let content = await fs.readFile(dsFilePath, 'utf-8')
-
-                // Update port configuration using regex
-                // Match patterns like: port: 5432, port:  5432, port: parseInt(...) etc.
-                const portRegex = /(\s+port:\s*)[^,\n]+/g
-                content = content.replace(portRegex, `$1 ${port}`)
-
-                await fs.writeFile(dsFilePath, content)
-                this.log(`Updated ${dsName}.ts with port ${port}`)
+        // Show info about existing Docker containers
+        if (dockerPorts.length > 0) {
+            this.log('ℹ️  Found existing project containers:')
+            for (const dockerPort of dockerPorts) {
+                const dataSource = dataSources.find(ds => (ds.port || (ds.type === 'mysql' ? 3306 : 5432)) === dockerPort.port)
+                if (dataSource) {
+                    this.log(`   ✅ Port ${dockerPort.port} - ${dataSource.name} (${dockerPort.containerName})`)
+                }
             }
+            this.log('')
+        }
+
+        if (conflictingPorts.length > 0) {
+            this.warn('⚠️  Warning: Some ports are currently in use')
+
+            for (const conflictPort of conflictingPorts) {
+                const dataSource = dataSources.find(ds => (ds.port || (ds.type === 'mysql' ? 3306 : 5432)) === conflictPort.port)
+                if (dataSource) {
+                    this.warn(`⚠️  Port ${conflictPort.port} is in use (needed for ${dataSource.name} - ${dataSource.type})`)
+                    if (conflictPort.process) {
+                        this.warn(`   Currently used by: ${conflictPort.process}`)
+                    }
+
+                    // Suggest alternative ports
+                    const alternativePort = await findAvailablePort(conflictPort.port + 1, 10)
+                    if (alternativePort) {
+                        this.warn(`   💡 Consider using port ${alternativePort} instead`)
+                    }
+                }
+            }
+
+            this.warn('💡 Note: Docker containers may fail to start due to these port conflicts')
+            this.warn('Consider updating your datasource files to use different ports\n')
         }
     }
 
@@ -283,6 +293,9 @@ export default class InfraUpdate extends Command {
 
             // Check if we're updating a single service
             const isSingleUpdate = selectedDataSources.length === 1 && !flags.all
+
+            // Check for port conflicts before generating docker-compose
+            await this.checkPortsBeforeGeneration(selectedDataSources)
 
             const dockerCompose = await this.generateDockerCompose(selectedDataSources, isSingleUpdate)
             const yamlContent = yaml.dump(dockerCompose)
