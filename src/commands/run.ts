@@ -38,6 +38,13 @@ export default class Run extends Command {
             this.error('Docker is not installed. Please install Docker to run infrastructure services.')
         }
 
+            // Check if Docker Engine is running
+            try {
+                execSync('docker info', { stdio: 'pipe' })
+            } catch (error) {
+                this.error('Docker Engine is not running. Please start Docker Desktop or the Docker service before continuing.')
+            }
+
         // Check if docker-compose is installed
         try {
             execSync('docker compose version', { stdio: 'pipe' })
