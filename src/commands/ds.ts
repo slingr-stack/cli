@@ -62,28 +62,7 @@ export default class Ds extends Command {
         }
     }
 
-    private async buildFramework(): Promise<void> {
-        this.log('Building slingr-framework...')
-        const currentDir = process.cwd()
-        const nodeModulesPath = path.join(currentDir, 'node_modules', 'slingr-framework')
 
-        this.log(`Looking for slingr-framework in: ${nodeModulesPath}`)
-
-        if (!await fs.pathExists(nodeModulesPath)) {
-            this.error('slingr-framework not found in node_modules. Please run npm install first.')
-        }
-
-        try {
-            this.log('Building framework...')
-            process.chdir(nodeModulesPath)
-
-            execSync('npm run build', { stdio: 'inherit' })
-        } catch (error) {
-            this.error(`Failed to build framework: ${(error as Error).message}`)
-        } finally {
-            process.chdir(currentDir)
-        }
-    }
 
     private async generateCode(): Promise<void> {
         // Compile TypeScript code
@@ -169,10 +148,7 @@ export default class Ds extends Command {
             this.error('slingr-framework not found in node_modules. Please run "npm install" to install dependencies.')
         }
 
-        // Step 1: Build slingr-framework
-        await this.buildFramework()
-
-        // Step 2: Generate code
+        // Generate code
         await this.generateCode()
     }
 

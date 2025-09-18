@@ -455,7 +455,7 @@ export async function discoverModels(distPath: string): Promise<Record<string, M
 
     // Only look for model files, not test files
     const entityFiles = await glob(path.join(distPath, 'data', '**', '*.js').replace(/\\/g, '/'))
-        .then(files => files.filter(file => !file.includes('.test.js')))
+        .then((files: string[]) => files.filter((file: string) => !file.includes('.test.js')))
 
     for (const file of entityFiles) {
         try {

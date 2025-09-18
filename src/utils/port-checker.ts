@@ -167,9 +167,14 @@ export async function checkPortsUsage(ports: number[]): Promise<Array<{
         } = {
             port,
             inUse,
-            isProjectDocker: dockerInfo.isDocker,
-            containerName: dockerInfo.containerName,
-            containerId: dockerInfo.containerId
+            isProjectDocker: dockerInfo.isDocker
+        }
+
+        if (dockerInfo.containerName !== undefined) {
+            result.containerName = dockerInfo.containerName;
+        }
+        if (dockerInfo.containerId !== undefined) {
+            result.containerId = dockerInfo.containerId;
         }
 
         if (inUse && !dockerInfo.isDocker) {
