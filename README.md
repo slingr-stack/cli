@@ -71,8 +71,8 @@ your-app/
 │   └── copilot-instructions.md  # GitHub Copilot context
 ├── src/
 │   └── data/
-│       ├── SampleModel.ts   # Example data model
-│       └── SampleModel.test.ts  # Example tests
+│       ├── Person.ts   # Example data model
+│       └── Person.test.ts  # Example tests
 ├── docs/
 │   └── app-description.md   # Generated app documentation
 ├── package.json             # Project configuration

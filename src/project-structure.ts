@@ -114,13 +114,13 @@ export async function createProjectStructure(appName: string, answers: AppAnswer
 
     // Copy sample model files
     await fse.copy(
-        path.join(templatesDir, 'src', 'SampleModel.ts'),
-        path.join(targetDir, 'src', 'data', 'SampleModel.ts')
+        path.join(templatesDir, 'src', 'Person.ts'),
+        path.join(targetDir, 'src', 'data', 'Person.ts')
     )
 
     await fse.copy(
-        path.join(templatesDir, 'src', 'SampleModel.test.ts'),
-        path.join(targetDir, 'src', 'data', 'SampleModel.test.ts')
+        path.join(templatesDir, 'src', 'Person.test.ts'),
+        path.join(targetDir, 'src', 'data', 'Person.test.ts')
     )
 
     // Copy App model files

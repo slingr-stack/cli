@@ -1,4 +1,4 @@
-import { Person } from './SampleModel';
+import { Person } from './Person';
 
 describe('Person Model', () => {
     describe('Validation Tests', () => {
