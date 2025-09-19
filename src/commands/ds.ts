@@ -156,7 +156,7 @@ export default class Ds extends Command {
         this.log(`Loading dataset '${dataset}' into datasource '${datasource}'...`)
 
         // Check if the dataset directory exists using the convention: dataSourceName-datasetName
-        const datasetPath = path.join(process.cwd(), 'datasets', `${datasource}-${dataset}`)
+        const datasetPath = path.join(process.cwd(), 'src', 'datasets', `${datasource}-${dataset}`)
         if (!await fs.pathExists(datasetPath)) {
             this.error(`Dataset not found at: ${datasetPath}`)
         }

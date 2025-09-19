@@ -37,7 +37,7 @@ export async function createProjectStructure(appName: string, answers: AppAnswer
     await fse.ensureDir(path.join(targetDir, 'src', 'data'))
     await fse.ensureDir(path.join(targetDir, 'src', 'dataSources'))
     await fse.ensureDir(path.join(targetDir, 'docs'))
-    await fse.ensureDir(path.join(targetDir, 'datasets'))
+    await fse.ensureDir(path.join(targetDir, 'src', 'datasets'))
 
     // Copy .vscode files from templates
     await fse.copy(
@@ -172,7 +172,7 @@ export async function createProjectStructure(appName: string, answers: AppAnswer
     if (answers.hasBackend) {
         const dbType = answers.database.toLowerCase()
         const datasetSourcePath = path.join(templatesDir, 'datasets', `${dbType}-default`)
-        const datasetTargetPath = path.join(targetDir, 'datasets', `${dbType}-default`)
+        const datasetTargetPath = path.join(targetDir, 'src', 'datasets', `${dbType}-default`)
 
         // Create the dataset directory
         await fse.ensureDir(datasetTargetPath)
