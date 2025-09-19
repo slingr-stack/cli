@@ -1,4 +1,5 @@
-import { Field, Text, Model, BaseModel } from "slingr-framework";
+import { Field, Text, Model, BaseModel, Reference } from "slingr-framework";
+import { Company } from "./Company";
 
 @Model({
     docs: "Represents an application containing info",
@@ -40,13 +41,9 @@ export class App extends BaseModel {
     description!: string;
 
     @Field({
-        docs: "The author of the application"
+        docs: "The owning company of the application",
+        required: true
     })
-    @Text({
-        minLength: 2,
-        maxLength: 100,
-        regex: /^[a-zA-Z._-]+$/,
-        regexMessage: "Author must contain only letters, numbers, dots, underscores, and hyphens"
-    })
-    author!: string;
+    @Reference({ load: true })
+    ownerCompany!: Company;
 }

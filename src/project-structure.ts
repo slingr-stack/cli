@@ -119,14 +119,24 @@ export async function createProjectStructure(appName: string, answers: AppAnswer
     )
 
     await fse.copy(
+        path.join(templatesDir, 'src', 'Company.ts'),
+        path.join(targetDir, 'src', 'data', 'Company.ts')
+    )
+
+    await fse.copy(
+        path.join(templatesDir, 'src', 'App.ts'),
+        path.join(targetDir, 'src', 'data', 'App.ts')
+    )
+
+    // Copy test files
+    await fse.copy(
         path.join(templatesDir, 'src', 'Person.test.ts'),
         path.join(targetDir, 'src', 'data', 'Person.test.ts')
     )
 
-    // Copy App model files
     await fse.copy(
-        path.join(templatesDir, 'src', 'App.ts'),
-        path.join(targetDir, 'src', 'data', 'App.ts')
+        path.join(templatesDir, 'src', 'Models.test.ts'),
+        path.join(targetDir, 'src', 'data', 'Models.test.ts')
     )
 
     // Copy templated .github/copilot-instructions.md
@@ -181,6 +191,11 @@ export async function createProjectStructure(appName: string, answers: AppAnswer
         await copyTemplateFile(
             path.join(datasetSourcePath, 'Person.jsonl.template'),
             path.join(datasetTargetPath, 'Person.jsonl')
+        )
+
+        await copyTemplateFile(
+            path.join(datasetSourcePath, 'Company.jsonl.template'),
+            path.join(datasetTargetPath, 'Company.jsonl')
         )
 
         await copyTemplateFile(
