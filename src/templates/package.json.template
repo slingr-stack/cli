@@ -16,7 +16,7 @@
   "author": "",
   "license": "MIT",
   "dependencies": {
-    "slingr-framework": "github:slingr-stack/framework",
+    "slingr-framework": "github:slingr-stack/framework#refactor/persistentModel",
     "pg": "^8.16.3"
   },
   "devDependencies": {

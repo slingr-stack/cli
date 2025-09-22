@@ -1,3 +1,5 @@
-{"id": "1", "firstName": "John", "lastName": "Doe", "email": "john.doe@example.com", "age": 25, "phoneNumber": "+1234567890", "additionalInfo": "Senior Developer", "isActive": true}
-{"id": "2", "firstName": "Jane", "lastName": "Smith", "email": "jane.smith@example.com", "age": 16, "parentEmail": "parent.smith@example.com", "additionalInfo": "Student", "isActive": true}
-{"id": "3", "firstName": "Robert", "lastName": "Johnson", "email": "robert.johnson@example.com", "age": 35, "phoneNumber": "+1987654321", "additionalInfo": "Project Manager", "isActive": true}
+{"id": "550e8400-e29b-41d4-a716-446655440001", "firstName": "John", "lastName": "Doe", "email": "john.doe@example.com", "age": 25, "phoneNumber": "+1234567890", "additionalInfo": "<p>Senior Developer</p>", "isActive": true}
+{"id": "550e8400-e29b-41d4-a716-446655440002", "firstName": "Jane", "lastName": "Smith", "email": "jane.smith@example.com", "age": 16, "parentEmail": "parent.smith@example.com", "additionalInfo": "<p>Student</p>", "isActive": true}
+{"id": "550e8400-e29b-41d4-a716-446655440003", "firstName": "Robert", "lastName": "Johnson", "email": "robert.johnson@example.com", "age": 45, "phoneNumber": "+1987654321", "additionalInfo": "<p>CEO and Founder</p>", "isActive": true}
+{"id": "550e8400-e29b-41d4-a716-446655440004", "firstName": "Michael", "lastName": "Chen", "email": "michael.chen@dataflow.com", "age": 38, "phoneNumber": "+1333444555", "additionalInfo": "<p>CEO and Data Architect</p>", "isActive": true}
+{"id": "550e8400-e29b-41d4-a716-446655440005", "firstName": "Sarah", "lastName": "Davis", "email": "sarah.davis@admintech.com", "age": 42, "phoneNumber": "+1222333444", "additionalInfo": "<p>CEO and Systems Administrator</p>", "isActive": true}
