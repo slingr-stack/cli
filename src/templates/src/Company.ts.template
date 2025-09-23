@@ -1,10 +1,20 @@
-import { Field, Text, Model, BaseModel, Composition } from "slingr-framework";
+import { Field, Text, Model, BaseModel, Composition, Integer, UUID } from "slingr-framework";
 import { Person } from "./Person";
+import { {{DATASOURCE_NAME}} } from "../dataSources/{{DATASOURCE_FILE}}";
 
 @Model({
     docs: "Represents a company with composition of employees and reference to an application",
+    dataSource: {{DATASOURCE_NAME}}
 })
 export class Company extends BaseModel {
+    @Field({
+        required: true,
+        autoGenerate: true,
+        primaryKey: true,
+    })
+    @UUID()
+    id!: string;
+
     @Field({
         docs: "The name of the company",
         required: true

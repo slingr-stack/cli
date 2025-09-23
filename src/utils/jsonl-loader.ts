@@ -1,6 +1,7 @@
 import fs from 'fs-extra'
 import path from 'node:path'
 import { BaseModel, TypeORMSqlDataSource } from 'slingr-framework'
+import 'reflect-metadata'
 
 /**
  * Interface for model constructors that extend BaseModel
@@ -38,6 +39,23 @@ export interface DatasetLoadOptions {
      * @default false
      */
     verbose?: boolean
+}
+
+/**
+ * Interface for model dependency information
+ */
+export interface ModelDependency {
+    modelName: string
+    dependencies: string[]
+    dependents: string[]
+}
+
+/**
+ * Interface for dependency analysis result
+ */
+export interface DependencyAnalysisResult {
+    dependencies: Record<string, ModelDependency>
+    loadOrder: string[]
 }
 
 /**
@@ -80,6 +98,172 @@ export interface DatasetLoadResult<T extends BaseModel = BaseModel> {
 export class JsonlDatasetLoader {
 
     /**
+     * Analyze model dependencies to determine the correct loading order
+     */
+    analyzeDependencies(modelMap: Record<string, ModelConstructor<any>>, verbose: boolean = false): DependencyAnalysisResult {
+        const dependencies: Record<string, ModelDependency> = {}
+
+        // Initialize dependency tracking for all models
+        for (const modelName of Object.keys(modelMap)) {
+            dependencies[modelName] = {
+                modelName,
+                dependencies: [],
+                dependents: []
+            }
+        }
+
+        // Analyze each model for dependencies
+        for (const [modelName, ModelClass] of Object.entries(modelMap)) {
+            const modelDeps = this.extractModelDependencies(ModelClass, verbose)
+            dependencies[modelName].dependencies = modelDeps
+
+            // Update dependents for referenced models
+            for (const depName of modelDeps) {
+                if (dependencies[depName]) {
+                    dependencies[depName].dependents.push(modelName)
+                }
+            }
+        }
+
+        // Determine load order using topological sort
+        const loadOrder = this.topologicalSort(dependencies, verbose)
+
+        if (verbose) {
+            console.log('📋 Dependency Analysis:')
+            for (const [modelName, deps] of Object.entries(dependencies)) {
+                console.log(`  ${modelName}: depends on [${deps.dependencies.join(', ')}], depended by [${deps.dependents.join(', ')}]`)
+            }
+            console.log(`🔄 Load Order: ${loadOrder.join(' → ')}`)
+        }
+
+        return { dependencies, loadOrder }
+    }
+
+    /**
+     * Extract dependencies from a model class by analyzing its decorators/metadata
+     */
+    private extractModelDependencies(ModelClass: ModelConstructor<any>, verbose: boolean = false): string[] {
+        const dependencies: string[] = []
+
+        try {
+            // Create a temporary instance to access metadata
+            const instance = new ModelClass()
+
+            // Get all property descriptors from the prototype and instance
+            const proto = Object.getPrototypeOf(instance)
+            const propertyNames = Object.getOwnPropertyNames(proto).concat(Object.getOwnPropertyNames(instance))
+
+            for (const propertyName of propertyNames) {
+                if (propertyName === 'constructor') continue
+
+                try {
+                    // Try to get Reflect metadata if available (Slingr framework uses decorators)
+                    const fieldMetadata = Reflect.getMetadata?.('slingr:field', instance, propertyName)
+                    const typeMetadata = Reflect.getMetadata?.('design:type', instance, propertyName)
+
+                    // Check for Reference and Composition decorators
+                    if (fieldMetadata) {
+                        // Look for reference types in the field configuration
+                        if (fieldMetadata.elementType && typeof fieldMetadata.elementType === 'function') {
+                            const referencedType = fieldMetadata.elementType()
+                            if (referencedType && referencedType.name) {
+                                dependencies.push(referencedType.name)
+                                if (verbose) {
+                                    console.log(`    Found dependency: ${ModelClass.name}.${propertyName} → ${referencedType.name}`)
+                                }
+                            }
+                        }
+                    }
+
+                    // Also check property getter/setter for reference information
+                    const descriptor = Object.getOwnPropertyDescriptor(instance, propertyName) ||
+                        Object.getOwnPropertyDescriptor(proto, propertyName)
+
+                    if (descriptor) {
+                        // Check if the property has reference metadata
+                        const refMetadata = Reflect.getMetadata?.('slingr:reference', instance, propertyName)
+                        if (refMetadata && refMetadata.elementType) {
+                            const referencedType = refMetadata.elementType()
+                            if (referencedType && referencedType.name) {
+                                dependencies.push(referencedType.name)
+                                if (verbose) {
+                                    console.log(`    Found reference dependency: ${ModelClass.name}.${propertyName} → ${referencedType.name}`)
+                                }
+                            }
+                        }
+
+                        // Check composition metadata
+                        const compMetadata = Reflect.getMetadata?.('slingr:composition', instance, propertyName)
+                        if (compMetadata && compMetadata.elementType) {
+                            const composedType = compMetadata.elementType()
+                            if (composedType && composedType.name) {
+                                dependencies.push(composedType.name)
+                                if (verbose) {
+                                    console.log(`    Found composition dependency: ${ModelClass.name}.${propertyName} → ${composedType.name}`)
+                                }
+                            }
+                        }
+                    }
+                } catch (error) {
+                    // Ignore property analysis errors, continue with next property
+                    if (verbose) {
+                        console.log(`    Skipped property ${propertyName} due to error:`, (error as Error).message)
+                    }
+                }
+            }
+        } catch (error) {
+            if (verbose) {
+                console.warn(`Failed to analyze dependencies for ${ModelClass.name}:`, (error as Error).message)
+            }
+        }
+
+        // Remove duplicates and self-references
+        return Array.from(new Set(dependencies)).filter(dep => dep !== ModelClass.name)
+    }
+
+    /**
+     * Perform topological sort to determine loading order
+     */
+    private topologicalSort(dependencies: Record<string, ModelDependency>, verbose: boolean = false): string[] {
+        const visited = new Set<string>()
+        const visiting = new Set<string>()
+        const result: string[] = []
+
+        const visit = (modelName: string): void => {
+            if (visiting.has(modelName)) {
+                throw new Error(`Circular dependency detected involving: ${modelName}`)
+            }
+
+            if (visited.has(modelName)) {
+                return
+            }
+
+            visiting.add(modelName)
+
+            // Visit all dependencies first
+            const modelDeps = dependencies[modelName]?.dependencies || []
+            for (const depName of modelDeps) {
+                if (dependencies[depName]) {
+                    visit(depName)
+                }
+            }
+
+            visiting.delete(modelName)
+            visited.add(modelName)
+            result.push(modelName)
+        }
+
+        // Visit all models
+        for (const modelName of Object.keys(dependencies)) {
+            if (!visited.has(modelName)) {
+                visit(modelName)
+            }
+        }
+
+        return result
+    }
+
+    /**
      * Load all JSONL files from a dataset directory
      */
     async loadDataset(options: DatasetLoadOptions): Promise<DatasetLoadResult[]> {
@@ -88,6 +272,9 @@ export class JsonlDatasetLoader {
         if (!await fs.pathExists(datasetPath)) {
             throw new Error(`Dataset directory not found: ${datasetPath}`)
         }
+
+        // Analyze dependencies first to determine correct loading order
+        const dependencyAnalysis = this.analyzeDependencies(modelMap, verbose)
 
         // Find all JSONL files in the dataset directory
         const files = await fs.readdir(datasetPath)
@@ -103,18 +290,26 @@ export class JsonlDatasetLoader {
 
         const results: DatasetLoadResult[] = []
 
-        for (const file of jsonlFiles) {
-            const modelName = path.basename(file, '.jsonl')
-            const ModelClass = modelMap[modelName]
+        // Process files in dependency order instead of arbitrary order
+        for (const modelName of dependencyAnalysis.loadOrder) {
+            const fileName = `${modelName}.jsonl`
 
-            if (!ModelClass) {
+            if (!jsonlFiles.includes(fileName)) {
                 if (verbose) {
-                    console.warn(`No model mapping found for file: ${file}. Skipping...`)
+                    console.log(`📄 No JSONL file found for model: ${modelName} (expected: ${fileName}). Skipping...`)
                 }
                 continue
             }
 
-            const filePath = path.join(datasetPath, file)
+            const ModelClass = modelMap[modelName]
+            if (!ModelClass) {
+                if (verbose) {
+                    console.warn(`No model mapping found for: ${modelName}. Skipping...`)
+                }
+                continue
+            }
+
+            const filePath = path.join(datasetPath, fileName)
             const result = await this.loadJsonlFile(filePath, ModelClass, modelName, validateRecords, verbose)
             results.push(result)
         }
@@ -250,6 +445,7 @@ export class JsonlDatasetLoader {
     /**
      * Load dataset into database using TypeORM with dynamic table creation
      * This method creates tables dynamically and uses TypeORM for data insertion
+     * Note: Results should already be in dependency order from loadDataset()
      */
     async loadDatasetToDatabase(
         results: DatasetLoadResult[],
@@ -262,6 +458,7 @@ export class JsonlDatasetLoader {
             throw new Error('TypeORM DataSource is not initialized')
         }
 
+        // Process results in the order they were provided (which should be dependency order)
         for (const result of results) {
             if (result.errorCount > 0 && verbose) {
                 console.log(`⚠️  Model ${result.modelName} has ${result.errorCount} validation errors:`)
@@ -282,29 +479,13 @@ export class JsonlDatasetLoader {
             }
 
             try {
-                // Convert model instances to database format
-                const dbRecords = this.convertToDbFormat(result.records, verbose)
-
-                if (dbRecords.length === 0) {
-                    continue
+                // Save records using the framework's save method which respects relationships
+                for (const record of result.records) {
+                    await dataSource.save(record)
                 }
-
-                // Infer database schema from ALL records to capture all fields
-                const schema = this.inferDbSchemaFromAllRecords(dbRecords)
-                const tableName = result.modelName.toLowerCase()
-
-                // Create table dynamically using TypeORM query runner
-                await this.createTableDynamically(dataSource, tableName, schema, verbose)
-
-                // Insert data using TypeORM query runner (database-agnostic)
-                await this.insertDataDynamically(dataSource, tableName, dbRecords, verbose)
 
                 if (verbose) {
                     console.log(`✅ Successfully loaded ${result.successCount} records for ${result.modelName}`)
-
-                    // Verify the data was saved
-                    const count = await typeormDataSource.query(`SELECT COUNT(*) as count FROM ${tableName}`)
-                    console.log(`✅ Verified: Table "${tableName}" contains ${count[0].count} records`)
                 }
 
             } catch (error) {

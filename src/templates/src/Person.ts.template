@@ -1,9 +1,19 @@
-import { Field, Text, Email, HTML, Boolean, Model, BaseModel } from "slingr-framework";
+import { Field, Text, Email, HTML, Boolean, Model, BaseModel, UUID, Integer } from "slingr-framework";
+import { {{DATASOURCE_NAME}} } from "../dataSources/{{DATASOURCE_FILE}}";
 
 @Model({
     docs: "Represents a person",
+    dataSource: {{DATASOURCE_NAME}}
 })
 export class Person extends BaseModel {
+    @Field({
+        required: true,
+        autoGenerate: true,
+        primaryKey: true,
+    })
+    @UUID()
+    id!: string;
+
     @Field({
         required: true,
     })
@@ -43,6 +53,7 @@ export class Person extends BaseModel {
         },
         required: true,
     })
+    @Integer()
     age!: number;
 
 
@@ -59,6 +70,7 @@ export class Person extends BaseModel {
         available: false, // This field should be excluded from JSON operations
         docs: "Internal identifier not exposed in JSON"
     })
+    @Text()
     internalId!: string;
 
     @Field({
@@ -67,6 +79,7 @@ export class Person extends BaseModel {
             return person.age >= 18;
         },
     })
+    @Text()
     phoneNumber!: string;
 
     @Field({})

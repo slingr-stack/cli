@@ -1,10 +1,19 @@
-import { Field, Text, Model, BaseModel, Reference } from "slingr-framework";
+import { Field, Text, Model, BaseModel, Reference, UUID } from "slingr-framework";
 import { Company } from "./Company";
+import { {{DATASOURCE_NAME}} } from "../dataSources/{{DATASOURCE_FILE}}";
 
 @Model({
     docs: "Represents an application containing info",
+    dataSource: {{DATASOURCE_NAME}}
 })
 export class App extends BaseModel {
+    @Field({
+        required: true,
+        autoGenerate: true,
+        primaryKey: true,
+    })
+    @UUID()
+    id!: string;
 
     @Field({
         docs: "The name of the application",
@@ -44,6 +53,6 @@ export class App extends BaseModel {
         docs: "The owning company of the application",
         required: true
     })
-    @Reference({ load: true })
+    @Reference({ load: true, elementType: () => Company })
     ownerCompany!: Company;
 }

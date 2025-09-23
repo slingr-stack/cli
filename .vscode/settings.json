@@ -1,0 +1,44 @@
+{
+  "sqltools.connections": [
+    {
+      "mysqlOptions": {
+        "authProtocol": "default",
+        "enableSsl": "Disabled"
+      },
+      "ssh": "Disabled",
+      "previewLimit": 50,
+      "server": "localhost",
+      "port": 3306,
+      "driver": "MySQL",
+      "name": "test",
+      "database": "test-mysql",
+      "username": "root",
+      "password": "root"
+    },
+    {
+      "ssh": "Disabled",
+      "previewLimit": 50,
+      "server": "localhost",
+      "port": 5433,
+      "driver": "PostgreSQL",
+      "name": "test-postgres-updated",
+      "database": "test-postgres-updated",
+      "username": "postgres",
+      "password": "postgres"
+    }
+  ],
+  "typescript.preferences.includePackageJsonAutoImports": "off",
+  "debug.allowBreakpointsEverywhere": true,
+  "debug.javascript.breakOnConditionalError": true,
+  "debug.javascript.unmapMissingSources": true,
+  "debug.javascript.codelens.npmScripts": "all",
+  "debug.console.fontSize": 14,
+  "debug.console.wordWrap": true,
+  "files.watcherExclude": {
+    "**/dist/**": true,
+    "**/node_modules/**": true
+  },
+  "typescript.preferences.noSemicolons": false,
+  "typescript.suggest.autoImports": true,
+  "typescript.updateImportsOnFileMove.enabled": "always"
+}

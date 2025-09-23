@@ -85,9 +85,28 @@ export async function createProjectStructure(appName: string, answers: AppAnswer
         replacements
     )
 
+    // Determine datasource details based on database type
+    const dbType = answers.database.toLowerCase()
+    let datasourceName = ''
+    let datasourceFile = ''
+
+    switch (dbType) {
+        case 'postgres':
+        case 'postgresql':
+            datasourceName = 'postgresDataSource'
+            datasourceFile = 'postgres'
+            break
+        case 'mysql':
+            datasourceName = 'mysqlDataSource'
+            datasourceFile = 'mysql'
+            break
+        default:
+            datasourceName = 'postgresDataSource'
+            datasourceFile = 'postgres'
+    }
+
     // Copy the corresponding datasource template based on database type
     if (answers.hasBackend) {
-        let dbType = answers.database.toLowerCase()
         let templateFile = ''
         let targetFile = ''
         switch (dbType) {
@@ -112,20 +131,28 @@ export async function createProjectStructure(appName: string, answers: AppAnswer
         )
     }
 
-    // Copy sample model files
-    await fse.copy(
-        path.join(templatesDir, 'src', 'Person.ts'),
-        path.join(targetDir, 'src', 'data', 'Person.ts')
+    // Copy sample model files with datasource replacements
+    const modelReplacements = {
+        '{{DATASOURCE_NAME}}': datasourceName,
+        '{{DATASOURCE_FILE}}': datasourceFile
+    }
+
+    await copyTemplateFile(
+        path.join(templatesDir, 'src', 'Person.ts.template'),
+        path.join(targetDir, 'src', 'data', 'Person.ts'),
+        modelReplacements
     )
 
-    await fse.copy(
-        path.join(templatesDir, 'src', 'Company.ts'),
-        path.join(targetDir, 'src', 'data', 'Company.ts')
+    await copyTemplateFile(
+        path.join(templatesDir, 'src', 'Company.ts.template'),
+        path.join(targetDir, 'src', 'data', 'Company.ts'),
+        modelReplacements
     )
 
-    await fse.copy(
-        path.join(templatesDir, 'src', 'App.ts'),
-        path.join(targetDir, 'src', 'data', 'App.ts')
+    await copyTemplateFile(
+        path.join(templatesDir, 'src', 'App.ts.template'),
+        path.join(targetDir, 'src', 'data', 'App.ts'),
+        modelReplacements
     )
 
     // Copy test files

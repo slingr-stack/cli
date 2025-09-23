@@ -1,0 +1,73 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Debug CLI - ds command",
+      "type": "node",
+      "request": "launch",
+      "program": "${workspaceFolder}/bin/dev.js",
+      "args": ["ds", "mysql", "load", "default"],
+      "console": "integratedTerminal",
+      "cwd": "${workspaceFolder}/test-mysql",
+      "env": {
+        "NODE_ENV": "development"
+      },
+      "sourceMaps": true,
+      "skipFiles": ["<node_internals>/**", "**/node_modules/**"],
+      "preLaunchTask": "npm: build"
+    },
+    {
+      "name": "Debug CLI - custom command",
+      "type": "node",
+      "request": "launch",
+      "program": "${workspaceFolder}/bin/dev.js",
+      "args": ["${input:cliCommand}"],
+      "console": "integratedTerminal",
+      "cwd": "${workspaceFolder}/test-mysql",
+      "env": {
+        "NODE_ENV": "development"
+      },
+      "sourceMaps": true,
+      "skipFiles": ["<node_internals>/**", "**/node_modules/**"],
+      "preLaunchTask": "npm: build"
+    },
+    {
+      "name": "Debug CLI - create-app",
+      "type": "node",
+      "request": "launch",
+      "program": "${workspaceFolder}/bin/dev.js",
+      "args": ["create-app", "test-app"],
+      "console": "integratedTerminal",
+      "cwd": "${workspaceFolder}/../",
+      "env": {
+        "NODE_ENV": "development"
+      },
+      "sourceMaps": true,
+      "skipFiles": ["<node_internals>/**", "**/node_modules/**"],
+      "preLaunchTask": "npm: build"
+    },
+    {
+      "name": "Debug CLI - run command",
+      "type": "node",
+      "request": "launch",
+      "program": "${workspaceFolder}/bin/dev.js",
+      "args": ["run"],
+      "console": "integratedTerminal",
+      "cwd": "${workspaceFolder}/test-mysql",
+      "env": {
+        "NODE_ENV": "development"
+      },
+      "sourceMaps": true,
+      "skipFiles": ["<node_internals>/**", "**/node_modules/**"],
+      "preLaunchTask": "npm: build"
+    }
+  ],
+  "inputs": [
+    {
+      "id": "cliCommand",
+      "description": "CLI command and arguments",
+      "default": "ds postgres load",
+      "type": "promptString"
+    }
+  ]
+}
