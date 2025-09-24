@@ -8,10 +8,13 @@ import { {{DATASOURCE_NAME}} } from "../dataSources/{{DATASOURCE_FILE}}";
 export class Person extends BaseModel {
     @Field({
         required: true,
-        autoGenerate: true,
         primaryKey: true,
     })
-    @UUID()
+    @UUID(
+        {
+            generated: true
+        }
+    )
     id!: string;
 
     @Field({

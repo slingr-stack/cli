@@ -145,6 +145,10 @@ export class JsonlDatasetLoader {
     private extractModelDependencies(ModelClass: ModelConstructor<any>, verbose: boolean = false): string[] {
         const dependencies: string[] = []
 
+        if (verbose) {
+            console.log(`    🔍 Analyzing ${ModelClass.name} for dependencies...`)
+        }
+
         try {
             // Create a temporary instance to access metadata
             const instance = new ModelClass()
@@ -153,24 +157,46 @@ export class JsonlDatasetLoader {
             const proto = Object.getPrototypeOf(instance)
             const propertyNames = Object.getOwnPropertyNames(proto).concat(Object.getOwnPropertyNames(instance))
 
+            if (verbose) {
+                console.log(`    Properties found:`, propertyNames.filter(p => p !== 'constructor'))
+            }
+
             for (const propertyName of propertyNames) {
                 if (propertyName === 'constructor') continue
 
                 try {
-                    // Try to get Reflect metadata if available (Slingr framework uses decorators)
-                    const fieldMetadata = Reflect.getMetadata?.('slingr:field', instance, propertyName)
-                    const typeMetadata = Reflect.getMetadata?.('design:type', instance, propertyName)
+                    // Try to get all available metadata keys first
+                    const availableKeys = Reflect.getMetadataKeys?.(instance, propertyName) || []
 
-                    // Check for Reference and Composition decorators
-                    if (fieldMetadata) {
-                        // Look for reference types in the field configuration
-                        if (fieldMetadata.elementType && typeof fieldMetadata.elementType === 'function') {
-                            const referencedType = fieldMetadata.elementType()
-                            if (referencedType && referencedType.name) {
-                                dependencies.push(referencedType.name)
-                                if (verbose) {
-                                    console.log(`    Found dependency: ${ModelClass.name}.${propertyName} → ${referencedType.name}`)
-                                }
+                    if (verbose && availableKeys.length > 0) {
+                        console.log(`    Metadata keys for ${propertyName}:`, availableKeys)
+                    }
+
+                    // Try to get Slingr-specific metadata using the correct keys
+                    const fieldType = Reflect.getMetadata?.('field:type', instance, propertyName)
+                    const relationshipType = Reflect.getMetadata?.('field:relationship:type', instance, propertyName)
+                    const designType = Reflect.getMetadata?.('design:type', instance, propertyName)
+
+                    if (verbose && (fieldType || relationshipType)) {
+                        console.log(`    Property ${propertyName}:`, {
+                            fieldType,
+                            relationshipType,
+                            designType: designType?.name
+                        })
+                    }
+
+                    // Check for Reference and Composition relationships
+                    if (fieldType === 'relationship' && relationshipType && designType) {
+                        // For relationships, designType contains the name of the referenced model
+                        if (typeof designType === 'string') {
+                            dependencies.push(designType)
+                            if (verbose) {
+                                console.log(`    ✅ Found dependency: ${ModelClass.name}.${propertyName} → ${designType} (${relationshipType})`)
+                            }
+                        } else if (typeof designType === 'function' && designType.name) {
+                            dependencies.push(designType.name)
+                            if (verbose) {
+                                console.log(`    ✅ Found dependency: ${ModelClass.name}.${propertyName} → ${designType.name} (${relationshipType})`)
                             }
                         }
                     }
@@ -289,6 +315,7 @@ export class JsonlDatasetLoader {
         }
 
         const results: DatasetLoadResult[] = []
+        const loadedEntities: Record<string, Record<string, any>> = {}
 
         // Process files in dependency order instead of arbitrary order
         for (const modelName of dependencyAnalysis.loadOrder) {
@@ -310,7 +337,19 @@ export class JsonlDatasetLoader {
             }
 
             const filePath = path.join(datasetPath, fileName)
-            const result = await this.loadJsonlFile(filePath, ModelClass, modelName, validateRecords, verbose)
+            const result = await this.loadJsonlFile(filePath, ModelClass, modelName, loadedEntities, validateRecords, verbose)
+
+            // Store successfully loaded entities for future reference resolution
+            if (result.records.length > 0) {
+                loadedEntities[modelName] = {}
+                for (const record of result.records) {
+                    const id = (record as any).id
+                    if (id) {
+                        loadedEntities[modelName][id] = record
+                    }
+                }
+            }
+
             results.push(result)
         }
 
@@ -320,10 +359,99 @@ export class JsonlDatasetLoader {
     /**
      * Load a single JSONL file and convert records using the model's fromJSON method
      */
+    /**
+     * Resolves simple references in format {"id": "uuid"} to full objects from loaded entities
+     */
+    async resolveSimpleReferences<T extends BaseModel>(
+        data: any,
+        ModelClass: ModelConstructor<T>,
+        loadedEntities: Record<string, Record<string, any>>,
+        verbose: boolean = false
+    ): Promise<any> {
+        if (!data || typeof data !== 'object') {
+            return data;
+        }
+
+        const resolvedData = { ...data };
+        const metadata = Reflect.getMetadata('custom:fields', ModelClass.prototype) || {};
+
+        // Get relationship metadata using the correct keys
+        for (const fieldName of Object.keys(resolvedData)) {
+            const fieldType = Reflect.getMetadata('field:type', ModelClass.prototype, fieldName);
+            const relationshipType = Reflect.getMetadata('field:relationship:type', ModelClass.prototype, fieldName);
+            const designType = Reflect.getMetadata('design:type', ModelClass.prototype, fieldName);
+
+            // If it's a reference/composition and has simple format {"id": "uuid"}
+            if ((fieldType === 'reference' || fieldType === 'composition' || relationshipType) &&
+                resolvedData[fieldName] &&
+                typeof resolvedData[fieldName] === 'object' &&
+                resolvedData[fieldName].id &&
+                Object.keys(resolvedData[fieldName]).length === 1) {
+
+                const refId = resolvedData[fieldName].id;
+
+                // Determine the referenced model type from metadata
+                let refModelName: string | null = null;
+
+                // Try to get the model name from designType
+                if (designType && designType.name) {
+                    refModelName = designType.name;
+                } else if (designType && typeof designType === 'function') {
+                    refModelName = designType.name;
+                } else {
+                    // Fallback: search in all available metadata keys
+                    const allMetadataKeys = Reflect.getMetadataKeys?.(ModelClass.prototype, fieldName) || [];
+
+                    for (const key of allMetadataKeys) {
+                        const value = Reflect.getMetadata(key, ModelClass.prototype, fieldName);
+
+                        // Search for referenced type information in any metadata
+                        if (value && typeof value === 'object') {
+                            if (value.type && typeof value.type === 'function' && value.type.name) {
+                                refModelName = value.type.name;
+                                break;
+                            } else if (value.target && typeof value.target === 'function' && value.target.name) {
+                                refModelName = value.target.name;
+                                break;
+                            } else if (value.elementType && typeof value.elementType === 'function') {
+                                const elementType = value.elementType();
+                                if (elementType && elementType.name) {
+                                    refModelName = elementType.name;
+                                    break;
+                                }
+                            }
+                        } else if (typeof value === 'function' && value.name) {
+                            refModelName = value.name;
+                            break;
+                        }
+                    }
+
+                    if (verbose && !refModelName && allMetadataKeys.length > 0) {
+                        console.log(`    Could not determine reference type for ${fieldName}, available metadata:`,
+                            allMetadataKeys.map(key => ({ key, value: Reflect.getMetadata(key, ModelClass.prototype, fieldName) })));
+                    }
+                }
+
+                // Search for the complete object in loadedEntities
+                if (refModelName && loadedEntities[refModelName] && loadedEntities[refModelName][refId]) {
+                    resolvedData[fieldName] = loadedEntities[refModelName][refId];
+                    if (verbose) {
+                        console.log(`    Resolved ${fieldName}.id=${refId} → ${refModelName} object`);
+                    }
+                } else if (verbose && refModelName) {
+                    console.log(`    Warning: Could not resolve ${fieldName}.id=${refId} (${refModelName} not found)`);
+                }
+            }
+        }
+
+        return resolvedData;
+    }
+
     async loadJsonlFile<T extends BaseModel>(
         filePath: string,
         ModelClass: ModelConstructor<T>,
         modelName: string,
+        loadedEntities: Record<string, Record<string, any>>,
         validateRecords: boolean = true,
         verbose: boolean = false
     ): Promise<DatasetLoadResult<T>> {
@@ -351,8 +479,11 @@ export class JsonlDatasetLoader {
                     console.log(`Processing record ${i + 1}:`, rawData)
                 }
 
+                // Resolve simple references before creating the model instance
+                const resolvedData = await this.resolveSimpleReferences(rawData, ModelClass, loadedEntities, verbose)
+
                 // Use the model's fromJSON method to create the instance
-                const modelInstance = ModelClass.fromJSON(rawData)
+                const modelInstance = ModelClass.fromJSON(resolvedData)
 
                 // Validate the instance if requested
                 if (validateRecords) {

@@ -1,30 +1,26 @@
 {
   "sqltools.connections": [
     {
-      "mysqlOptions": {
-        "authProtocol": "default",
-        "enableSsl": "Disabled"
-      },
-      "ssh": "Disabled",
-      "previewLimit": 50,
-      "server": "localhost",
-      "port": 3306,
-      "driver": "MySQL",
-      "name": "test",
-      "database": "test-mysql",
-      "username": "root",
-      "password": "root"
-    },
-    {
       "ssh": "Disabled",
       "previewLimit": 50,
       "server": "localhost",
       "port": 5433,
       "driver": "PostgreSQL",
-      "name": "test-postgres-updated",
-      "database": "test-postgres-updated",
+      "name": "test",
+      "database": "test-references",
       "username": "postgres",
       "password": "postgres"
+    },
+    {
+      "ssh": "Disabled",
+      "previewLimit": 50,
+      "server": "localhost",
+      "port": 5434,
+      "driver": "PostgreSQL",
+      "database": "test-postgres",
+      "username": "postgres",
+      "password": "postgres",
+      "name": "test1"
     }
   ],
   "typescript.preferences.includePackageJsonAutoImports": "off",
