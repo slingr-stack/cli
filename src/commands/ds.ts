@@ -191,10 +191,10 @@ export default class Ds extends Command {
         // Import the datasource module from compiled JS
         const dsModulePath = path.join(process.cwd(), 'dist', 'dataSources', `${datasource}.js`)
         const dsModule = require(dsModulePath)
-        const dsConfig = dsModule[`${datasource}DataSource`] as TypeORMSqlDataSource
+        const dsConfig = dsModule[`${datasource}`] as TypeORMSqlDataSource
 
         if (!dsConfig) {
-            this.error(`Could not find datasource instance ${datasource}DataSource in ${dsModulePath}`)
+            this.error(`Could not find datasource instance ${datasource} in ${dsModulePath}`)
         }
 
         // Validate Docker is running and PostgreSQL container is available
