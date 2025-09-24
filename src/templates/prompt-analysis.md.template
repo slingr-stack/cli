@@ -1,0 +1,73 @@
+# Project Analysis Request: Synthetic Data Generation for "{{PROJECT_NAME}}"
+
+## Project Overview
+{{PROJECT_DESCRIPTION}}
+
+## Dataset Context
+- **Generated Dataset**: `{{DATASOURCE}}-{{DATASET}}`
+- **Dataset Location**: `src/datasets/{{DATASOURCE}}-{{DATASET}}/`
+- **Datasource**: {{DATASOURCE}}
+- **Generation Timestamp**: {{TIMESTAMP}}
+- **Total Models**: {{TOTAL_MODELS}}
+- **Total Records Generated**: {{TOTAL_RECORDS}}
+
+## Dataset Files Generated
+{{DATASET_FILES}}
+
+## Data Models Analysis
+
+{{MODEL_DESCRIPTIONS}}
+
+## Sample Data Preview
+{{DATA_PREVIEW}}
+
+## Analysis Request
+
+Please analyze this **specific dataset "{{DATASOURCE}}-{{DATASET}}"** and provide insights on:
+
+1. **Data Model Design**: 
+   - Are the model relationships logical and well-structured?
+   - Do the field constraints and validations make sense for the business domain?
+   - Are there any missing fields or relationships that would improve the data model?
+
+2. **Data Quality & Realism**:
+   - How realistic and coherent is the generated data likely to be?
+   - Are there potential data quality issues or inconsistencies?
+   - What improvements could make the data more representative of real-world scenarios?
+
+3. **Business Logic Validation**:
+   - Do the field validations align with typical business requirements?
+   - Are the data constraints appropriate for the domain?
+   - Could any validation rules be improved or simplified?
+
+4. **Testing & Development Benefits**:
+   - How well would this synthetic data support development and testing workflows?
+   - What additional test scenarios might require different data characteristics?
+   - Are there edge cases that should be represented in the synthetic data?
+
+5. **Recommendations**:
+   - Suggest improvements to the model structure or field definitions
+   - Recommend additional data generation strategies or patterns
+   - Propose ways to enhance data relationships and coherence
+
+## Technical Context
+- Framework: Slingr Framework (TypeScript/Node.js)
+- Database: PostgreSQL/MySQL (via TypeORM)
+- Generation Method: Faker.js with intelligent field mapping
+- Validation: Built-in framework constraints and custom validation functions
+
+Please provide actionable insights and specific recommendations for improving both the data model design and the synthetic data generation process for this **"{{DATASOURCE}}-{{DATASET}}"** dataset.
+
+## Commands to Load This Dataset
+```bash
+# Load the generated dataset into the database
+slingr ds {{DATASOURCE}} load {{DATASET}}
+
+# Generate a new version with improvements
+slingr ds {{DATASOURCE}} generate-dataset {{DATASET}}-v2 --count {{AVG_RECORDS_PER_MODEL}}
+```
+
+## Related Files to Review
+- Dataset files: `src/datasets/{{DATASOURCE}}-{{DATASET}}/*.jsonl`
+- Model definitions: `src/data/*.ts`
+- Datasource config: `src/dataSources/{{DATASOURCE}}.ts`

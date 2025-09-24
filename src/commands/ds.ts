@@ -1,9 +1,11 @@
-import { Args, Command } from '@oclif/core'
+import { Args, Command, Flags } from '@oclif/core'
 import fs from 'fs-extra'
 import path from 'node:path'
 import { execSync } from 'child_process'
 import { TypeORMSqlDataSource } from 'slingr-framework'
 import { JsonlDatasetLoader, discoverModels } from '../utils/jsonl-loader.js'
+import { ModelAnalyzer, ModelMetadata } from '../utils/model-analyzer.js'
+import { SyntheticDataGenerator, DataGenerationOptions, DatasetGenerationResult } from '../utils/synthetic-data-generator.js'
 
 export default class Ds extends Command {
     static description = 'Manage datasets for datasources'
@@ -11,7 +13,10 @@ export default class Ds extends Command {
     static examples = [
         'slingr ds postgres load',
         'slingr ds postgres load custom-dataset',
-        'slingr ds mysql load default'
+        'slingr ds mysql load default',
+        'slingr ds postgres generate-dataset synthetic',
+        'slingr ds postgres generate-dataset --count 100 --generate-prompt',
+        'slingr ds mysql generate-dataset custom --count 50'
     ]
 
     static args = {
@@ -20,19 +25,44 @@ export default class Ds extends Command {
             required: true
         }),
         action: Args.string({
-            description: 'Action to perform (load)',
-            options: ['load'],
+            description: 'Action to perform (load, generate-dataset)',
+            options: ['load', 'generate-dataset'],
             required: true
         }),
         dataset: Args.string({
-            description: 'Name of the dataset to load (defaults to "default")',
+            description: 'Name of the dataset to load/generate (defaults to "default")',
             required: false,
             default: 'default'
         })
     }
 
+    static flags = {
+        count: Flags.integer({
+            char: 'c',
+            description: 'Number of records to generate per model',
+            default: 10,
+            min: 1,
+            max: 10000
+        }),
+        locale: Flags.string({
+            description: 'Locale for fake data generation',
+            default: 'en'
+        }),
+        seed: Flags.integer({
+            description: 'Seed for reproducible fake data generation'
+        }),
+        verbose: Flags.boolean({
+            char: 'v',
+            description: 'Verbose output'
+        }),
+        'generate-prompt': Flags.boolean({
+            description: 'Generate AI analysis prompt and save to file/clipboard',
+            default: false
+        })
+    }
+
     async run(): Promise<void> {
-        const { args } = await this.parse(Ds)
+        const { args, flags } = await this.parse(Ds)
         const { datasource, action, dataset } = args
 
         // Verify we're in a Slingr app directory
@@ -54,6 +84,9 @@ export default class Ds extends Command {
                     await this.prepareEnvironment()
                     await this.loadDataset(datasource, dataset)
                     break
+                case 'generate-dataset':
+                    await this.generateDataset(datasource, dataset, flags)
+                    break
                 default:
                     this.error(`Unknown action: ${action}`)
             }
@@ -62,7 +95,353 @@ export default class Ds extends Command {
         }
     }
 
+    /**
+     * Generate synthetic dataset using Faker
+     */
+    private async generateDataset(datasource: string, dataset: string, flags: any): Promise<void> {
+        this.log(`🎯 Generating synthetic dataset '${dataset}' for datasource '${datasource}'...`)
 
+        // Ensure we have compiled TypeScript code to analyze
+        await this.prepareEnvironment()
+
+        // Analyze models from the source code
+        const analyzer = new ModelAnalyzer()
+        const srcPath = path.join(process.cwd(), 'src')
+
+        try {
+            const allModels = await analyzer.analyzeModels(srcPath)
+
+            if (allModels.length === 0) {
+                this.error('No models found to generate data for. Please ensure you have models in src/data/ that extend BaseModel.')
+            }
+
+            // Filter models by datasource
+            const modelsForDataSource = allModels.filter(model =>
+                model.dataSource === `${datasource}DataSource` ||
+                model.dataSource === datasource
+            )
+
+            if (modelsForDataSource.length === 0) {
+                this.error(`No models found for datasource '${datasource}'. Available datasources: ${[...new Set(allModels.map(m => m.dataSource))].join(', ')}`)
+            }
+
+            this.log(`📊 Found ${modelsForDataSource.length} models for datasource '${datasource}':`)
+            modelsForDataSource.forEach(model => {
+                this.log(`   - ${model.name} (${model.fields.length} fields)`)
+            })
+
+            // Set up data generation options (only Faker)
+            const options: DataGenerationOptions = {
+                count: flags.count,
+                locale: flags.locale,
+                seed: flags.seed,
+                verbose: flags.verbose
+            }
+
+            // Create synthetic data generator
+            const generator = new SyntheticDataGenerator(options)
+
+            // Generate datasets
+            const outputDir = path.join(process.cwd(), 'src', 'datasets')
+            const results = await generator.generateDatasets(modelsForDataSource, outputDir, dataset)
+
+            // Create output directory if it doesn't exist
+            const datasetOutputDir = path.join(outputDir, `${datasource}-${dataset}`)
+            await fs.ensureDir(datasetOutputDir)
+
+            // Write JSONL files
+            for (const result of results) {
+                const filePath = path.join(datasetOutputDir, `${result.modelName}.jsonl`)
+
+                // Convert records to JSONL format
+                const jsonlContent = result.records.map(record => JSON.stringify(record)).join('\n')
+
+                await fs.writeFile(filePath, jsonlContent, 'utf-8')
+
+                if (flags.verbose) {
+                    this.log(`💾 Wrote ${result.records.length} records to ${filePath}`)
+                }
+            }
+
+            // Summary
+            const totalRecords = results.reduce((sum, r) => sum + r.records.length, 0)
+            this.log(`\n🎉 Successfully generated synthetic dataset '${dataset}' for datasource '${datasource}'`)
+            this.log(`📈 Summary:`)
+            this.log(`   - ${results.length} model(s) processed`)
+            this.log(`   - ${totalRecords} total records generated`)
+            this.log(`   - Output directory: ${datasetOutputDir}`)
+            this.log(`\n💡 To load this dataset, run:`)
+            this.log(`   slingr ds ${datasource} load ${dataset}`)
+
+            // Generate AI prompt if requested
+            if (flags['generate-prompt']) {
+                const prompt = await this.generateProjectAnalysisPrompt(modelsForDataSource, results, datasource, dataset, flags.verbose)
+
+                this.log(`\n🤖 Generated AI Analysis Prompt:`)
+                this.log(`\n${'='.repeat(80)}`)
+                this.log(prompt)
+                this.log(`${'='.repeat(80)}`)
+
+                // Save file and copy to clipboard
+                await this.openCopilotWithPrompt(prompt)
+            }
+
+        } catch (error) {
+            this.error(`Failed to generate synthetic dataset: ${(error as Error).message}`)
+        }
+    }
+
+    /**
+     * Generate an intelligent English prompt for AI analysis based on project descriptions
+     */
+    private async generateProjectAnalysisPrompt(
+        models: ModelMetadata[],
+        results: DatasetGenerationResult[],
+        datasource: string,
+        dataset: string,
+        verbose: boolean = false
+    ): Promise<string> {
+        // Read project documentation
+        const projectInfo = await this.extractProjectInfo()
+
+        // Build model descriptions
+        const modelDescriptions = models.map(model => {
+            const fieldList = model.fields
+                .filter(f => f.available !== false && !(f.primaryKey && f.generated))
+                .map(f => {
+                    let desc = `  - ${f.name} (${f.type})`
+                    if (f.required) desc += ' [required]'
+                    if (f.minLength || f.maxLength) desc += ` [length: ${f.minLength || 0}-${f.maxLength || 255}]`
+                    if (f.min !== undefined || f.max !== undefined) desc += ` [range: ${f.min || 0}-${f.max || 100}]`
+                    if (f.regex) desc += ` [pattern: ${f.regex}]`
+                    return desc
+                })
+                .join('\n')
+
+            return `**${model.name}** ${model.docs ? `- ${model.docs}` : ''}
+${fieldList}
+Generated: ${results.find(r => r.modelName === model.name)?.records.length || 0} records`
+        }).join('\n\n')
+
+        // Generate data preview
+        const dataPreview = await this.generateDataPreview(results)
+
+        // Load template from external file
+        let template = ''
+
+        const possiblePaths = [
+            // 1. Try installed package path
+            path.join(process.cwd(), 'node_modules', '@slingr', 'cli', 'dist', 'templates', 'prompt-analysis.md.template'),
+            path.join(process.cwd(), 'node_modules', '@slingr', 'cli', 'src', 'templates', 'prompt-analysis.md.template'),
+            // 2. Try local development paths
+            path.join(__dirname, '..', '..', 'src', 'templates', 'prompt-analysis.md.template'),
+            path.join(__dirname, '..', 'templates', 'prompt-analysis.md.template'),
+        ]
+
+        let templateLoaded = false
+        for (const templatePath of possiblePaths) {
+            try {
+                template = await fs.readFile(templatePath, 'utf-8')
+                templateLoaded = true
+                if (verbose) {
+                    this.log(`📄 Using template: ${templatePath}`)
+                }
+                break
+            } catch (error) {
+                // Continue to next path
+            }
+        }
+
+        if (!templateLoaded) {
+            this.error(`Template file not found. Searched in:\n${possiblePaths.map(p => `  - ${p}`).join('\n')}\n\nPlease ensure the CLI is properly installed or the template file exists.`)
+        }
+
+        // Calculate variables for template
+        const totalRecords = results.reduce((sum, r) => sum + r.records.length, 0)
+        const avgRecordsPerModel = Math.ceil(totalRecords / results.length)
+
+        // Replace template variables
+        const replacements = {
+            '{{PROJECT_NAME}}': projectInfo.name,
+            '{{PROJECT_DESCRIPTION}}': projectInfo.description,
+            '{{DATASOURCE}}': datasource,
+            '{{DATASET}}': dataset,
+            '{{TIMESTAMP}}': new Date().toISOString(),
+            '{{TOTAL_MODELS}}': models.length.toString(),
+            '{{TOTAL_RECORDS}}': totalRecords.toString(),
+            '{{DATASET_FILES}}': results.map(r => `- \`${r.modelName}.jsonl\` - ${r.records.length} records`).join('\n'),
+            '{{MODEL_DESCRIPTIONS}}': modelDescriptions,
+            '{{DATA_PREVIEW}}': dataPreview,
+            '{{AVG_RECORDS_PER_MODEL}}': avgRecordsPerModel.toString()
+        }
+
+        // Apply all replacements
+        for (const [placeholder, value] of Object.entries(replacements)) {
+            template = template.replace(new RegExp(placeholder.replace(/[{}]/g, '\\$&'), 'g'), value)
+        }
+
+        return template
+    }
+
+    /**
+     * Generate a preview of the actual generated data for the prompt
+     */
+    private async generateDataPreview(results: DatasetGenerationResult[]): Promise<string> {
+        const previews = await Promise.all(results.map(async result => {
+            // Show first 2 records as examples
+            const samples = result.records.slice(0, 2)
+            const sampleText = samples.map(record =>
+                '  ' + JSON.stringify(record, null, 0)
+            ).join('\n')
+
+            return `### ${result.modelName} Sample Data
+\`\`\`json
+${sampleText}
+\`\`\`
+*Showing 2 of ${result.records.length} generated records*`
+        }))
+
+        return previews.join('\n\n')
+    }
+
+    /**
+     * Extract project information from various sources
+     */
+    private async extractProjectInfo(): Promise<{ name: string, description: string }> {
+        let name = 'Slingr Application'
+        let description = 'A Slingr framework application with TypeORM data models.'
+
+        try {
+            // Try to read package.json
+            const pkgPath = path.join(process.cwd(), 'package.json')
+            if (await fs.pathExists(pkgPath)) {
+                const pkg = await fs.readJSON(pkgPath)
+                name = pkg.name || name
+                if (pkg.description) {
+                    description = pkg.description
+                }
+            }
+
+            // Try to read app description from docs
+            const docsPath = path.join(process.cwd(), 'docs', 'app-description.md')
+            if (await fs.pathExists(docsPath)) {
+                const docsContent = await fs.readFile(docsPath, 'utf-8')
+                if (docsContent.trim().length > 0) {
+                    description += '\n\n' + docsContent.trim()
+                }
+            }
+
+            // Try to read README
+            const readmePath = path.join(process.cwd(), 'README.md')
+            if (await fs.pathExists(readmePath)) {
+                const readmeContent = await fs.readFile(readmePath, 'utf-8')
+                const lines = readmeContent.split('\n').slice(0, 10) // First 10 lines only
+                const summary = lines.find(line => line.trim() && !line.startsWith('#'))
+                if (summary) {
+                    description += '\n\n' + summary.trim()
+                }
+            }
+
+        } catch (error) {
+            // Ignore errors, use defaults
+        }
+
+        return { name, description }
+    }
+
+    /**
+     * Open Copilot Chat with the generated prompt
+     */
+    private async openCopilotWithPrompt(prompt: string): Promise<void> {
+        try {
+            // Method 1: Create a temporary markdown file with the prompt and open it
+            const tempDir = path.join(process.cwd(), '.temp')
+            await fs.ensureDir(tempDir)
+
+            const timestamp = new Date().toISOString().replace(/[:.]/g, '-')
+            const tempFile = path.join(tempDir, `copilot-prompt-${timestamp}.md`)
+
+            const fileContent = `# AI Analysis Prompt - Generated by Slingr CLI
+
+${prompt}
+
+---
+*This file was automatically generated. You can copy the content above and paste it into Copilot Chat, or select all text and use "Ask Copilot" from the context menu.*`
+
+            await fs.writeFile(tempFile, fileContent, 'utf-8')
+
+            // Try to open VS Code with the file
+            try {
+                execSync(`code "${tempFile}"`, { stdio: 'pipe' })
+                this.log(`\n💬 Opened prompt in VS Code: ${tempFile}`)
+                this.log(`📋 Select all text and use "Ask Copilot" from the context menu, or copy and paste into Copilot Chat`)
+
+                // Try to also trigger the Copilot Chat command
+                setTimeout(() => {
+                    try {
+                        execSync(`code --command workbench.action.chat.open`, { stdio: 'pipe' })
+                    } catch {
+                        // Ignore if command fails
+                    }
+                }, 1000)
+
+            } catch (codeError) {
+                // Fallback: just show the file path
+                this.log(`\n📁 Prompt saved to: ${tempFile}`)
+                this.log(`💡 Open this file in VS Code and use "Ask Copilot" to analyze the content`)
+            }
+
+            // Method 2: Try to copy to clipboard if possible
+            try {
+                const { spawn } = require('child_process')
+                const platform = process.platform
+
+                let clipboardCommand: string[] = []
+
+                if (platform === 'darwin') {
+                    // macOS
+                    clipboardCommand = ['pbcopy']
+                } else if (platform === 'win32') {
+                    // Windows
+                    clipboardCommand = ['clip']
+                } else if (platform === 'linux') {
+                    // Linux (try xclip first, then xsel)
+                    try {
+                        execSync('which xclip', { stdio: 'pipe' })
+                        clipboardCommand = ['xclip', '-selection', 'clipboard']
+                    } catch {
+                        try {
+                            execSync('which xsel', { stdio: 'pipe' })
+                            clipboardCommand = ['xsel', '--clipboard', '--input']
+                        } catch {
+                            throw new Error('No clipboard utility found')
+                        }
+                    }
+                }
+
+                if (clipboardCommand.length > 0) {
+                    const clipProcess = spawn(clipboardCommand[0], clipboardCommand.slice(1), {
+                        stdio: ['pipe', 'pipe', 'pipe']
+                    })
+
+                    clipProcess.stdin.write(prompt)
+                    clipProcess.stdin.end()
+
+                    clipProcess.on('close', (code: number | null) => {
+                        if (code === 0) {
+                            this.log(`📋 Prompt also copied to clipboard! You can paste it directly into Copilot Chat.`)
+                        }
+                    })
+                }
+            } catch (clipError) {
+                // Clipboard copy failed, but that's ok
+            }
+
+        } catch (error) {
+            this.log(`⚠️  Could not automatically open Copilot: ${(error as Error).message}`)
+            this.log(`💡 Please manually copy the prompt above and paste it into Copilot Chat`)
+        }
+    }
 
     private async generateCode(): Promise<void> {
         // Compile TypeScript code
